@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#5b5bd6" />
+  <title>WiFi 卡牌联机 · 一个大厅，多种玩法</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🃏</text></svg>" />
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <!-- 顶部栏 -->
+  <header id="topbar" class="topbar">
+    <div class="brand">
+      <span class="brand-logo">🃏</span>
+      <span class="brand-name">WiFi 卡牌联机</span>
+    </div>
+    <div class="topbar-right">
+      <span id="conn-badge" class="badge badge-idle">未连接</span>
+      <span id="room-badge" class="badge badge-room hidden"></span>
+    </div>
+  </header>
+
+  <main class="app">
+    <!-- 首页 / 大厅 -->
+    <section id="screen-home" class="screen">
+      <div class="hero">
+        <h1>找个 WiFi，和身边的人开一局</h1>
+        <p class="sub">纯网页 · 局域网点对点 · 无需注册 · 打开即玩 · 也支持人机</p>
+      </div>
+
+      <!-- 联机状态指示灯：醒目的三色状态卡 -->
+      <div id="net-status" class="net-status is-checking">
+        <span class="ns-dot"></span>
+        <div class="ns-text">
+          <div class="ns-title">
+            <b id="ns-title">正在检测联机环境…</b>
+            <span id="ns-net" class="ns-net hidden"></span>
+          </div>
+          <div id="ns-desc" class="ns-desc">正在确认能否创建 / 加入房间…</div>
+        </div>
+        <button id="ns-retry" class="btn btn-ghost btn-sm ns-retry">重新检测</button>
+      </div>
+
+      <div class="name-box">
+        <label for="name-input">你的昵称</label>
+        <input id="name-input" type="text" maxlength="12" placeholder="输入昵称" autocomplete="off" />
+      </div>
+
+      <div class="cta-row">
+        <button id="btn-create" class="btn btn-primary btn-lg">创建房间</button>
+        <button id="btn-join" class="btn btn-ghost btn-lg">加入房间</button>
+        <button id="btn-solo" class="btn btn-solo btn-lg">🤖 单机人机</button>
+      </div>
+      <p id="net-hint" class="net-hint hidden"></p>
+
+      <div id="join-box" class="join-box hidden">
+        <input id="join-code" type="text" maxlength="4" placeholder="输入 4 位房间码" autocomplete="off" autocapitalize="characters" />
+        <button id="btn-join-go" class="btn btn-primary">进入</button>
+      </div>
+
+      <h2 class="section-title">选择玩法</h2>
+      <div class="game-grid" id="game-grid">
+        <!-- 由 JS 动态渲染 -->
+      </div>
+
+      <p class="footnote">玩法将持续增加 · 数据通过 WebRTC 在局域网内点对点传输</p>
+    </section>
+
+    <!-- 房间等待区 -->
+    <section id="screen-room" class="screen hidden">
+      <div class="room-card">
+        <div class="room-head">
+          <div>
+            <div class="room-label">房间码</div>
+            <div class="room-code" id="room-code">----</div>
+            <div class="room-hint">让朋友连同一个 WiFi，输入这 4 位码加入</div>
+          </div>
+          <button id="btn-copy" class="btn btn-ghost btn-sm">复制</button>
+        </div>
+
+        <div class="room-mid">
+          <div class="field-label">本局玩法</div>
+          <div class="game-select-row" id="game-select-row"></div>
+        </div>
+
+        <h3 class="players-title">玩家 <span id="player-count">1</span>/<span id="player-max">6</span></h3>
+        <ul id="player-list" class="player-list"></ul>
+
+        <div class="room-actions">
+          <button id="btn-start" class="btn btn-primary btn-lg" disabled>等待玩家加入…</button>
+          <button id="btn-leave" class="btn btn-ghost">离开房间</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- 游戏区 -->
+    <section id="screen-game" class="screen hidden">
+      <div id="game-container" class="game-container"></div>
+    </section>
+  </main>
+
+  <!-- 提示 -->
+  <div id="toast" class="toast"></div>
+
+  <!-- 弹窗 -->
+  <div id="modal" class="modal hidden">
+    <div class="modal-card">
+      <div class="modal-title" id="modal-title"></div>
+      <div class="modal-body" id="modal-body"></div>
+      <div class="modal-actions" id="modal-actions"></div>
+    </div>
+  </div>
+
+  <script src="js/vendor/peerjs.min.js"></script>
+  <script src="js/deck.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/net.js"></script>
+  <script src="js/bot.js"></script>
+  <script src="js/games/oldmaid.js"></script>
+  <script src="js/games/blackjack.js"></script>
+  <script src="js/main.js"></script>
+</body>
+</html>
