@@ -33,6 +33,8 @@ const HorseRace = (() => {
       lastCard: null,
       progress: { '♠': 0, '♥': 0, '♦': 0, '♣': 0 },
       finished: [],      // 花色冲线顺序
+      turnIndex: 0,      // 联机：当前轮到第几位玩家翻牌
+      turnId: null,      // 联机：当前轮到哪位玩家翻牌
       action: '比赛即将开始，请每人认领一匹看好的马',
     };
     pushState(); render();
@@ -55,31 +57,76 @@ const HorseRace = (() => {
     pushState(); render();
   }
 
-  function startRace() {
-    if (!state) return;
-    state.stage = 'racing';
-    state.action = '比赛进行中…';
-    pushState(); render();
-    step();
+  function soloMode() { return !!(ctx && ctx.solo); }
+
+  function justFinished(suit) {
+    return state.finished.length > 0 && state.finished[state.finished.length - 1] === suit;
   }
 
-  function step() {
-    if (!state || state.stage !== 'racing') return;
-    if (state.index >= state.deck.length) { finishRace(); return; }
+  // 翻出牌堆顶下一张牌，推进对应花色；返回翻出的牌对象（牌堆空则返回 null）
+  function flipCard() {
+    if (state.index >= state.deck.length) return null;
     const card = state.deck[state.index];
     state.index++;
     state.lastCard = card;
     state.progress[card.suit]++;
-    const done = state.progress[card.suit] >= FINISH;
-    if (done && !state.finished.includes(card.suit)) {
+    if (state.progress[card.suit] >= FINISH && !state.finished.includes(card.suit)) {
       state.finished.push(card.suit);
-      state.action = card.suit + ' 号马冲线！';
-    } else {
-      state.action = '翻到 ' + card.suit + card.rank + '，' + card.suit + ' 号马前进一格';
     }
+    return card;
+  }
+
+  function advanceTurn() {
+    state.turnIndex = (state.turnIndex + 1) % state.players.length;
+    state.turnId = state.players[state.turnIndex].id;
+  }
+
+  function startRace() {
+    if (!state) return;
+    state.stage = 'racing';
+    if (soloMode()) {
+      // 人机：房主自动翻牌，观看式竞速
+      state.action = '比赛进行中…';
+      pushState(); render();
+      step();
+    } else {
+      // 联机：玩家轮流手动翻牌，增加参与感
+      state.turnIndex = 0;
+      state.turnId = state.players[0].id;
+      state.action = '比赛开始！轮到 ' + state.players[0].name + ' 翻牌';
+      pushState(); render();
+    }
+  }
+
+  function step() {
+    if (!state || state.stage !== 'racing') return;
+    if (state.finished.length >= SUITS.length) { finishRace(); return; }
+    const card = flipCard();
+    if (!card) { finishRace(); return; }
+    state.action = justFinished(card.suit)
+      ? card.suit + ' 号马冲线！'
+      : '翻到 ' + card.suit + card.rank + '，' + card.suit + ' 号马前进一格';
     pushState(); render();
     if (state.finished.length >= SUITS.length) { finishRace(); return; }
     raceTimer = setTimeout(step, speed);
+  }
+
+  // 联机：轮到某位玩家时由他主动翻牌
+  function hostFlip(fromId) {
+    if (!state || state.stage !== 'racing') return;
+    if (soloMode()) return;
+    if (!state.turnId || fromId !== state.turnId) return;
+    const p = state.players.find(x => x.id === fromId);
+    const who = p ? p.name : '玩家';
+    const card = flipCard();
+    if (!card) { finishRace(); return; }
+    state.action = justFinished(card.suit)
+      ? who + ' 翻到 ' + card.suit + card.rank + '，' + card.suit + ' 号马冲线！'
+      : who + ' 翻到 ' + card.suit + card.rank + '，' + card.suit + ' 号马前进一格';
+    if (state.finished.length >= SUITS.length) { finishRace(); return; }
+    advanceTurn();
+    state.action += ' · 轮到 ' + state.players[state.turnIndex].name + ' 翻牌';
+    pushState(); render();
   }
 
   function finishRace() {
@@ -118,6 +165,7 @@ const HorseRace = (() => {
       lastCard: state.lastCard,
       action: state.action,
       index: state.index,
+      turnId: state.turnId || null,
     };
   }
 
@@ -130,6 +178,7 @@ const HorseRace = (() => {
     if (!ctx || !data || !data.type) return;
     if (ctx.isHost) {
       if (data.type === 'hr_pick') hostPick(from, data.suit);
+      else if (data.type === 'hr_flip') hostFlip(from);
     } else {
       if (data.type === 'hr_state') { mirror = data; render(); }
     }
@@ -140,6 +189,11 @@ const HorseRace = (() => {
     myPick = suit;
     if (ctx.isHost) hostPick(Net.myId(), suit);
     else Net.sendToHost({ type: 'hr_pick', suit });
+  }
+
+  function doFlip() {
+    if (ctx.isHost) hostFlip(Net.myId());
+    else Net.sendToHost({ type: 'hr_flip' });
   }
 
   function view() {
@@ -177,7 +231,7 @@ const HorseRace = (() => {
     }
     const pill = document.createElement('span');
     pill.className = 'phase-pill' + (v && v.stage === 'ended' ? ' ok' : '');
-    pill.textContent = !v ? '准备中' : (v.stage === 'picking' ? '认领中' : (v.stage === 'racing' ? '比赛进行中' : '已结束'));
+    pill.textContent = !v ? '准备中' : (v.stage === 'picking' ? '认领中' : (v.stage === 'racing' ? (soloMode() ? '比赛进行中' : '轮流翻牌中') : '已结束'));
     right.appendChild(pill);
     const leaveBtn = document.createElement('button');
     leaveBtn.className = 'btn btn-ghost btn-sm';
@@ -327,22 +381,40 @@ const HorseRace = (() => {
         bar.appendChild(wait);
       }
     } else if (v.stage === 'racing') {
-      if (ctx.isHost) {
-        const sp = document.createElement('button');
-        sp.className = 'btn btn-ghost';
-        sp.textContent = '加速';
-        sp.addEventListener('click', () => { speedUp(); });
-        bar.appendChild(sp);
-        const skip = document.createElement('button');
-        skip.className = 'btn btn-ghost';
-        skip.textContent = '直接揭晓';
-        skip.addEventListener('click', skipRace);
-        bar.appendChild(skip);
+      if (soloMode()) {
+        // 人机：房主自动翻牌，可加速 / 直接揭晓
+        if (ctx.isHost) {
+          const sp = document.createElement('button');
+          sp.className = 'btn btn-ghost';
+          sp.textContent = '加速';
+          sp.addEventListener('click', () => { speedUp(); });
+          bar.appendChild(sp);
+          const skip = document.createElement('button');
+          skip.className = 'btn btn-ghost';
+          skip.textContent = '直接揭晓';
+          skip.addEventListener('click', skipRace);
+          bar.appendChild(skip);
+        } else {
+          const wait = document.createElement('span');
+          wait.className = 'horse-picked';
+          wait.textContent = '比赛进行中，观看赛况…';
+          bar.appendChild(wait);
+        }
       } else {
-        const wait = document.createElement('span');
-        wait.className = 'horse-picked';
-        wait.textContent = '比赛进行中，观看赛况…';
-        bar.appendChild(wait);
+        // 联机：轮到谁谁翻牌
+        if (v.turnId === myId) {
+          const flip = document.createElement('button');
+          flip.className = 'btn btn-primary';
+          flip.textContent = '🂠 翻牌';
+          flip.addEventListener('click', doFlip);
+          bar.appendChild(flip);
+        } else {
+          const tp = v.players.find(p => p.id === v.turnId);
+          const wait = document.createElement('span');
+          wait.className = 'horse-picked';
+          wait.textContent = '轮到 ' + (tp ? tp.name : '') + ' 翻牌…';
+          bar.appendChild(wait);
+        }
       }
     } else if (v.stage === 'ended') {
       const back = document.createElement('button');
