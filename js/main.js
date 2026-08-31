@@ -2,6 +2,11 @@
 const GAME_REGISTRY = [
   { key: 'oldmaid',   name: '抽鬼牌',     icon: '👻', desc: '轮流抽牌凑对，最后拿到鬼牌的输', min: 2, max: 6, available: true,  module: () => OldMaid },
   { key: 'blackjack', name: '21点',       icon: '🃏', desc: '和庄家比点，看谁更接近 21 不爆', min: 2, max: 8, available: true,  module: () => Blackjack },
+  { key: 'uno',       name: 'UNO',        icon: '🌈', desc: '颜色或数字对得上就能出，先出完手牌获胜', min: 2, max: 6, available: true,  module: () => Uno },
+  { key: 'poison',    name: '女巫的毒药', icon: '🧪', desc: '往锅里放药水，别让锅溢出，罚分最少者胜', min: 3, max: 6, available: true, module: () => Poison },
+  { key: 'werewolf',  name: '狼人杀',     icon: '🐺', desc: '天黑请闭眼，找出狼人，好人阵营获胜', min: 6, max: 8, available: true,  module: () => Werewolf },
+  { key: 'cabo',      name: '卡波',       icon: '🦄', desc: '记牌换牌把总分压到最低，喊卡波结束比拼', min: 2, max: 4, available: true,  module: () => Cabo },
+  { key: 'horserace', name: '赛马',       icon: '🏇', desc: '四花色马竞速，认领一匹看谁先冲线',     min: 2, max: 8, available: true,  module: () => HorseRace },
   { key: 'doudizhu',  name: '斗地主',     icon: '🎴', desc: '3 人国民玩法，敬请期待',           min: 3, max: 3, available: false },
   { key: 'memory',    name: '记忆翻牌',   icon: '🧠', desc: '2-4 人回合制记忆挑战，敬请期待',   min: 2, max: 4, available: false },
 ];
@@ -16,6 +21,8 @@ const App = (() => {
   let leaving = false;
   let solo = false;           // 单机人机模式
   let netState = { level: 'checking', title: '正在检测联机环境…', desc: '正在确认能否创建 / 加入房间…' };
+  let chatOpen = false;
+  let unreadChat = 0;
 
   const nameInput = document.getElementById('name-input');
 
@@ -44,6 +51,7 @@ const App = (() => {
       conn.className = 'badge badge-idle';
       room.classList.add('hidden');
     }
+    updateChatInputState();
   }
 
   // ---------- 联机状态指示灯 ----------
@@ -176,6 +184,7 @@ const App = (() => {
     if (!def || !def.available) return;
     ensureName();
     Net.enterLocal('me-' + Math.floor(Math.random() * 1e6));
+    Lobby.disconnect();
     solo = true; isHost = true; roomCode = null; gameKey = key;
     botCount = Math.max(0, Math.min(def.max - 1, botCount));
     players = [{ id: Net.myId(), name: myName, isHost: true }];
@@ -213,6 +222,7 @@ const App = (() => {
     ensureName();
     try {
       const { code } = await Net.createRoom();
+      Lobby.disconnect();
       isHost = true; roomCode = code; gameKey = key; solo = false;
       players = [{ id: Net.myId(), name: myName, isHost: true }];
       setBadges();
@@ -232,6 +242,7 @@ const App = (() => {
     UI.toast('正在加入房间 ' + code + '…', 20000);
     try {
       await Net.joinRoom(code);
+      Lobby.disconnect();
       isHost = false; roomCode = code; gameKey = null; players = []; solo = false;
       setBadges();
       show('screen-room');
@@ -357,6 +368,16 @@ const App = (() => {
       case 'roster': if (!isHost) { players = data.players; gameKey = data.game; renderRoom(); } break;
       case 'start': if (!isHost) { gameKey = data.game; players = data.players; startGame(); } break;
       case 'back_to_room': if (!isHost) returnToRoom(); break;
+      case 'chat':
+        if (isHost) {
+          // 主机：转发客机消息给所有人，并显示
+          Net.broadcast({ type: 'chat', from, name: data.name, text: data.text });
+          onChat(from, data.name, data.text);
+        } else {
+          // 客机：收到主机广播
+          onChat(data.from, data.name, data.text);
+        }
+        break;
       case 'toast': UI.toast(data.text); break;
       case 'error':
         UI.toast(data.text);
@@ -400,6 +421,7 @@ const App = (() => {
     setBadges();
     show('screen-home');
     leaving = false;
+    Lobby.connect(); // 回到大厅，重连公共聊天频道
   }
 
   function copyCode() {
@@ -409,6 +431,131 @@ const App = (() => {
     } else {
       UI.toast(t);
     }
+  }
+
+  // ---------- 聊天 ----------
+  function chatContext() {
+    if (solo) return '人机对战';
+    if (roomCode) return '房间 ' + roomCode;
+    return '大厅 · 公共频道';
+  }
+
+  function appendChat(name, text, kind) {
+    // kind: 'mine' | 'other' | 'system'
+    const list = document.getElementById('chat-list');
+    const msg = document.createElement('div');
+    msg.className = 'chat-msg ' + kind;
+    if (kind === 'other') {
+      const nm = document.createElement('div');
+      nm.className = 'cm-name';
+      nm.textContent = name;
+      msg.appendChild(nm);
+    }
+    const body = document.createElement('div');
+    body.textContent = text;
+    msg.appendChild(body);
+    list.appendChild(msg);
+    list.scrollTop = list.scrollHeight;
+  }
+
+  function updateChatUnread() {
+    const b = document.getElementById('chat-unread');
+    if (unreadChat > 0) {
+      b.textContent = unreadChat > 99 ? '99+' : unreadChat;
+      b.classList.remove('hidden');
+    } else {
+      b.classList.add('hidden');
+    }
+  }
+
+  function updateChatInputState() {
+    const input = document.getElementById('chat-input');
+    const send = document.getElementById('btn-chat-send');
+    const inRoom = !!roomCode;
+    const lobbyReady = !inRoom && !solo && Lobby.connected(); // 大厅走公共频道
+    const canChat = inRoom || lobbyReady;
+    input.disabled = !canChat;
+    send.disabled = !canChat;
+    input.placeholder = inRoom
+      ? '说点什么…'
+      : lobbyReady
+        ? '在大厅里说点什么…'
+        : (solo
+          ? '人机对战中，暂不支持聊天'
+          : (Lobby.isAvailable()
+            ? '正在连接公共聊天频道…'
+            : '公共聊天不可用，请检查网络'));
+  }
+
+  function onChat(from, name, text) {
+    const mine = from === Net.myId();
+    if (mine) appendChat(null, text, 'mine');
+    else appendChat(name, text, 'other');
+    if (!chatOpen) { unreadChat++; updateChatUnread(); }
+  }
+
+  function sendChat() {
+    const input = document.getElementById('chat-input');
+    const text = input.value.trim();
+    if (!text) return;
+    input.value = '';
+
+    if (roomCode) {
+      if (isHost) {
+        const msg = { type: 'chat', from: Net.myId(), name: myName, text };
+        Net.broadcast(msg);
+        appendChat(null, text, 'mine');
+      } else {
+        // 客机：发给主机，由主机广播回来，保证所有端顺序一致
+        Net.sendToHost({ type: 'chat', name: myName, text });
+      }
+    } else if (solo) {
+      appendChat(null, '人机对战中，暂不支持聊天', 'system');
+    } else if (Lobby.connected()) {
+      // 大厅：走公共聊天频道（消息不回环给自己，本地补一条显示）
+      Lobby.send(myName, text);
+      appendChat(null, text, 'mine');
+    } else {
+      appendChat(null, '公共聊天频道未连接，请稍后再试', 'system');
+    }
+  }
+
+  function onLobbyMessage(msg) {
+    if (roomCode || solo) return; // 房间/人机时不显示大厅公共消息
+    if (!chatOpen) { unreadChat++; updateChatUnread(); }
+    appendChat(msg.name || '玩家', msg.text, 'other');
+  }
+
+  function onLobbyStatus(status) {
+    if (roomCode || solo) return; // 房间/人机时不更新
+    if (status.level === 'connected') {
+      appendChat(null, '已连上大厅公共聊天，可以和所有在线玩家聊天', 'system');
+    } else if (status.level === 'error') {
+      appendChat(null, '大厅公共聊天连不上（可能该 WiFi 无外网）· 加入房间后仍可局域网聊天', 'system');
+    } else if (status.level === 'unavailable') {
+      appendChat(null, '公共聊天组件未加载，加入房间后可局域网聊天', 'system');
+    }
+    updateChatInputState();
+  }
+
+  function openChat() {
+    chatOpen = true;
+    unreadChat = 0;
+    updateChatUnread();
+    document.getElementById('chat-context').textContent = chatContext();
+    document.getElementById('chat-panel').classList.remove('hidden');
+    updateChatInputState();
+    const input = document.getElementById('chat-input');
+    if (!input.disabled) input.focus();
+  }
+
+  function closeChat() {
+    chatOpen = false;
+    document.getElementById('chat-panel').classList.add('hidden');
+  }
+
+  function toggleChat() {
+    if (chatOpen) closeChat(); else openChat();
   }
 
   // ---------- 初始化 ----------
@@ -435,6 +582,14 @@ const App = (() => {
     document.getElementById('btn-copy').addEventListener('click', copyCode);
     document.getElementById('btn-start').addEventListener('click', hostStart);
     document.getElementById('btn-leave').addEventListener('click', leaveRoom);
+
+    document.getElementById('btn-chat').addEventListener('click', toggleChat);
+    document.getElementById('btn-chat-close').addEventListener('click', closeChat);
+    document.getElementById('btn-chat-send').addEventListener('click', sendChat);
+    document.getElementById('chat-input').addEventListener('keydown', e => { if (e.key === 'Enter') sendChat(); });
+
+    Lobby.on('message', onLobbyMessage);
+    Lobby.on('status', onLobbyStatus);
 
     Net.on('msg', ({ from, data }) => handleNetMessage(from, data));
     Net.on('peer-leave', ({ id }) => onGuestLeave(id));
@@ -467,6 +622,9 @@ const App = (() => {
     setBadges();
     setNetStatus(netState);
     runProbe();
+    appendChat(null, '在大厅即可和所有在线玩家聊天（公共频道）；加入房间后转为局域网私聊', 'system');
+    updateChatInputState();
+    Lobby.connect();
     show('screen-home');
   }
 

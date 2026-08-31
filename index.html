@@ -18,6 +18,10 @@
     <div class="topbar-right">
       <span id="conn-badge" class="badge badge-idle">未连接</span>
       <span id="room-badge" class="badge badge-room hidden"></span>
+      <button id="btn-chat" class="icon-btn" title="聊天" aria-label="打开聊天">
+        💬
+        <span id="chat-unread" class="chat-unread hidden"></span>
+      </button>
     </div>
   </header>
 
@@ -112,13 +116,34 @@
     </div>
   </div>
 
+  <!-- 聊天弹窗 -->
+  <div id="chat-panel" class="chat-panel hidden">
+    <div class="chat-head">
+      <span class="chat-title">💬 聊天</span>
+      <span id="chat-context" class="chat-context">大厅</span>
+      <button id="btn-chat-close" class="icon-btn" aria-label="关闭聊天">✕</button>
+    </div>
+    <div id="chat-list" class="chat-list"></div>
+    <div class="chat-input-row">
+      <input id="chat-input" type="text" maxlength="200" placeholder="说点什么…" autocomplete="off" />
+      <button id="btn-chat-send" class="btn btn-primary btn-sm">发送</button>
+    </div>
+  </div>
+
   <script src="js/vendor/peerjs.min.js"></script>
+  <script src="js/vendor/mqtt.min.js"></script>
   <script src="js/deck.js"></script>
   <script src="js/ui.js"></script>
   <script src="js/net.js"></script>
+  <script src="js/lobby.js"></script>
   <script src="js/bot.js"></script>
   <script src="js/games/oldmaid.js"></script>
   <script src="js/games/blackjack.js"></script>
+  <script src="js/games/uno.js"></script>
+  <script src="js/games/poison.js"></script>
+  <script src="js/games/werewolf.js"></script>
+  <script src="js/games/cabo.js"></script>
+  <script src="js/games/horserace.js"></script>
   <script src="js/main.js"></script>
 </body>
 </html>
