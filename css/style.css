@@ -293,6 +293,19 @@ body { padding-bottom: 40px; }
 .seat .stag { font-size: 12px; color: var(--ink-2); }
 .seat .cards { display: flex; flex: 1; flex-wrap: wrap; gap: 6px; }
 
+/* 抽鬼牌：上下布局座位（上面名字/状态，下面一行背面牌） */
+.seat-stacked { flex-direction: column; align-items: stretch; }
+.seat-stacked .seat-head { display: flex; align-items: center; gap: 10px; }
+.seat-stacked .meta { flex: 1; min-width: 0; }
+.seat-cards { display: flex; flex-wrap: wrap; gap: 6px; }
+.hand-cards { display: flex; flex-wrap: wrap; gap: 8px; }
+.card.selected {
+  outline: 3px solid var(--brand);
+  outline-offset: 2px;
+  transform: translateY(-6px);
+  box-shadow: 0 8px 16px rgba(50, 60, 120, .18);
+}
+
 /* ===== 卡牌 ===== */
 .card {
   width: var(--card-w); height: var(--card-h);

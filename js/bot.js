@@ -23,22 +23,43 @@ const Bot = (() => {
   }
 
   // ---------- 抽鬼牌 ----------
+  // 两阶段：arrange（被抽牌方整理并亮牌）→ draw（抽牌方点击选牌）
   function oldMaidBrain(botId, send) {
     let last = null;      // 最近一次公开状态
-    let pending = false;  // 是否已经在“思考”中，避免同一回合重复出牌
+    let hand = [];        // 自己的手牌（来自 om_hand）
+    let busy = false;     // 是否正在“思考”中，避免同一阶段重复动作
 
     return function onData(msg) {
       if (!msg || !msg.type) return;
-      if (msg.type === 'om_state') last = msg;
+      if (msg.type === 'om_hand') { hand = msg.hand || []; return; }
       if (msg.type !== 'om_state') return;
-      if (!last || last.phase !== 'playing' || last.turnId !== botId) return;
-      if (pending) return;
-      pending = true;
-      setTimeout(() => {
-        pending = false;
-        if (!last || last.phase !== 'playing' || last.turnId !== botId) return;
-        send({ type: 'om_draw' });
-      }, thinkDelay(1000));
+      last = msg;
+      if (busy) return;
+      if (!last || last.stage === 'ended') return;
+
+      // 我是被抽牌方：整理（随机打乱）后亮牌
+      if (last.stage === 'arrange' && last.targetId === botId) {
+        busy = true;
+        setTimeout(() => {
+          busy = false;
+          if (!last || last.stage !== 'arrange' || last.targetId !== botId) return;
+          send({ type: 'om_arranged', order: Deck.shuffle(hand.slice()) });
+        }, thinkDelay(1000));
+        return;
+      }
+
+      // 我是抽牌方：随机点一张
+      if (last.stage === 'draw' && last.turnId === botId) {
+        busy = true;
+        const target = (last.players || []).find(p => p.id === last.targetId);
+        const n = target ? target.count : 0;
+        setTimeout(() => {
+          busy = false;
+          if (!last || last.stage !== 'draw' || last.turnId !== botId) return;
+          if (n <= 0) return;
+          send({ type: 'om_draw', index: Math.floor(Math.random() * n) });
+        }, thinkDelay(1100));
+      }
     };
   }
 
