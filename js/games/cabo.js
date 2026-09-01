@@ -576,10 +576,19 @@ const Cabo = (() => {
   function topbarEl(v) {
     const tb = document.createElement('div');
     tb.className = 'game-topbar';
+    const left = document.createElement('div');
+    left.style.cssText = 'display:flex;gap:8px;align-items:center;';
+    const rulesBtn = document.createElement('button');
+    rulesBtn.className = 'btn btn-ghost btn-sm';
+    rulesBtn.textContent = '📖 规则';
+    rulesBtn.title = '查看卡波规则';
+    rulesBtn.addEventListener('click', showRules);
+    left.appendChild(rulesBtn);
     const title = document.createElement('span');
     title.className = 'game-title';
     title.textContent = '🦄 卡波';
-    tb.appendChild(title);
+    left.appendChild(title);
+    tb.appendChild(left);
     const right = document.createElement('div');
     right.style.cssText = 'display:flex;gap:8px;align-items:center;';
     if (ctx.solo) {
@@ -600,6 +609,26 @@ const Cabo = (() => {
     tb.appendChild(right);
     return tb;
   }
+
+  function showRules() {
+    const rules = [
+      ['🎯 目标', '让自己的手牌点数总和最小。牌越少、点数越低越好，最后总分最低者获胜。'],
+      ['🃏 牌与开局', '52 张牌：0 点×2、13 点×2、1–12 点各 4 张。每人发 4 张牌背面朝上排成一行，开局先偷看其中 2 张，之后靠记忆。'],
+      ['🔁 回合行动', '轮到你三选一：① 从牌堆抽一张；② 拿弃牌堆顶的一张；③ 喊「卡波」结束本轮。'],
+      ['🔀 换牌', '抽到/拿到牌后必须决定：换掉手牌中任意 1 张（新牌落在原位，位置不变），或把抽到的牌直接弃掉（拿弃牌堆的牌则必须换进手牌）。'],
+      ['✨ 特殊牌', '从牌堆抽出并弃掉 7/8（偷看自己一张）、9/10（偷看别人一张）、11/12（与别人交换一张，双方都不看）可发动能力。'],
+      ['📣 喊卡波', '喊「卡波」后本轮进入终局：其余玩家各还有最后一回合。喊牌者手牌最低记 0 分，否则手牌点数 +10 惩罚。'],
+      ['💥 神风 Kamikaze', '凑齐 12、12、13、13 四张 → 本局 0 分，其余人各 +50。'],
+      ['🏁 结算', '每轮结束后按手牌点数计分；总分恰好 100 重置为 50（每人每局限一次）；有人总分超过 100 时游戏结束，总分最低者胜。'],
+    ];
+    let html = '<div class="cabo-rules">';
+    rules.forEach(([h, t]) => {
+      html += '<div class="cabo-rule"><div class="cabo-rule-h">' + UI.esc(h) + '</div><div class="cabo-rule-t">' + UI.esc(t) + '</div></div>';
+    });
+    html += '</div>';
+    UI.modal('📖 卡波规则', html, [{ label: '知道了' }]);
+  }
+
 
   function scoreboardEl(v) {
     const rl = document.createElement('div');

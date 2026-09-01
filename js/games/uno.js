@@ -355,6 +355,23 @@ const Uno = (() => {
     return el;
   }
 
+  // 规则详情弹窗
+  function showRules() {
+    const body = `
+      <div class="rules-wrap">
+        <p><b>目标</b>：打出与弃牌堆顶颜色相同、或数字/符号相同的牌，先出完手牌者获胜。</p>
+        <p><b>牌组</b>：红 / 黄 / 绿 / 蓝 四色，0~9 数字牌（0 各一张、1~9 各两张）。</p>
+        <p><b>跳过</b>🚫：下家本轮不能出牌。</p>
+        <p><b>反转</b>🔄：出牌方向反转；2 人局时相当于跳过对方。</p>
+        <p><b>+2 罚抽</b>：下家抽 2 张并跳过本轮。</p>
+        <p><b>万能牌</b>✦：任意时候可出，出牌后由你选择颜色。</p>
+        <p><b>+4 万能牌</b>：选颜色，且下家抽 4 张并跳过。</p>
+        <p><b>抽牌</b>：没有可出的牌时先抽 1 张——抽到能出可立即打出，否则结束回合；每回合最多抽一张。</p>
+        <p><b>提示</b>：只剩最后一张牌时记得喊「UNO！」。</p>
+      </div>`;
+    UI.modal('🌈 UNO 规则', body, [{ label: '知道了', primary: true }]);
+  }
+
   function render() {
     if (!ctx) return;
     const c = ctx.container;
@@ -367,6 +384,12 @@ const Uno = (() => {
 
     const tb = document.createElement('div');
     tb.className = 'game-topbar';
+    const rulesBtn = document.createElement('button');
+    rulesBtn.className = 'btn btn-ghost btn-sm';
+    rulesBtn.textContent = '📖 规则';
+    rulesBtn.title = '查看规则详情';
+    rulesBtn.addEventListener('click', showRules);
+    tb.appendChild(rulesBtn);
     const title = document.createElement('span');
     title.className = 'game-title';
     title.textContent = '🌈 UNO';

@@ -274,6 +274,19 @@ const Poison = (() => {
     return el;
   }
 
+  function showRules() {
+    const body = `
+      <div class="rules-wrap">
+        <p><b>目标</b>：让对手收下更多罚分。累计罚分最少者获胜。</p>
+        <p><b>牌组</b>：3 种药水色（红 / 蓝 / 紫）各 14 张，另有 8 张绿色「毒药」牌（每张值 4）。</p>
+        <p><b>出牌</b>：轮到你时必须打 1 张牌——药水牌只能放进同色锅；毒药牌可放进任意一口锅。</p>
+        <p><b>收锅</b>：放牌后若该锅总点数超过 13（即 ≥14），你必须收走锅中除刚打出的那张外的所有牌，刚打出的牌成为新锅起点。</p>
+        <p><b>计分</b>：所有手牌打完后结算——每种药水色，收得该色「唯一最多」者可把该色牌全部丢弃免罚；并列最多则无人免罚。每张剩余药水牌 1 罚分、每张毒药牌 2 罚分。</p>
+        <p><b>局数</b>：共进行「玩家人数」局，累计罚分最少者胜。</p>
+      </div>`;
+    UI.modal('🧪 女巫的毒药 · 规则', body, [{ label: '知道了', primary: true }]);
+  }
+
   function render() {
     if (!ctx) return;
     const c = ctx.container;
@@ -287,6 +300,12 @@ const Poison = (() => {
     // 顶栏
     const tb = document.createElement('div');
     tb.className = 'game-topbar';
+    const rulesBtn = document.createElement('button');
+    rulesBtn.className = 'btn btn-ghost btn-sm';
+    rulesBtn.textContent = '📖 规则';
+    rulesBtn.title = '查看规则详情';
+    rulesBtn.addEventListener('click', showRules);
+    tb.appendChild(rulesBtn);
     const title = document.createElement('span');
     title.className = 'game-title';
     title.textContent = '🧪 女巫的毒药';

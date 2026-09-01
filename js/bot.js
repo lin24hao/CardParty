@@ -414,6 +414,751 @@ const Bot = (() => {
     };
   }
 
+  // ---------- 飞行棋 ----------
+  // 简单策略：轮到掷骰就掷；选择阶段按「优先起飞 > 能踩则踩 > 前进最多（to 最大）」决策。
+  function ludoBrain(botId, send) {
+    let last = null;
+    let busy = false;
+
+    return function onData(msg) {
+      if (!msg || msg.type !== 'ludo_state') return;
+      last = msg;
+      if (!last || last.phase === 'ended') return;
+      if (last.currentId !== botId) return;
+      if (busy) return;
+      busy = true;
+      setTimeout(() => {
+        busy = false;
+        if (!last || last.currentId !== botId || last.phase === 'ended') return;
+        if (last.phase === 'roll') {
+          send({ type: 'ludo_roll' });
+          return;
+        }
+        if (last.phase === 'choose') {
+          const moves = last.moves || [];
+          if (!moves.length) return;
+          const takeoff = moves.find(m => m.from === -1);
+          const take = moves.find(m => m.take);
+          let mv = takeoff || take;
+          if (!mv) {
+            mv = moves.slice().sort((a, b) => (b.to || -99) - (a.to || -99))[0];
+          }
+          send({ type: 'ludo_move', fromPos: mv.from });
+        }
+      }, thinkDelay(1000));
+    };
+  }
+
+  // ---------- 情书 ----------
+  // 简单策略：强制情况下打伯爵夫人；否则打出点数较小的牌（保留大牌用于终局比较）；
+  // 目标随机选存活且非免疫玩家；守卫随机猜 2~8。
+  function loveLetterBrain(botId, send) {
+    let hand = [];
+    let last = null;
+    let busy = false;
+    let handDirty = false;
+
+    function pickTarget() {
+      const others = (last && last.players ? last.players : []).filter(p => p.alive && p.id !== botId && !p.immune);
+      if (!others.length) return null;
+      return others[Math.floor(Math.random() * others.length)].id;
+    }
+
+    function act() {
+      if (busy) return;
+      if (!last || last.phase !== 'playing' || last.currentId !== botId) return;
+      if (handDirty) return; // 等 ll_hand 更新手牌后再决策
+      if (!hand.length) return;
+      const has7 = hand.some(c => c.rank === 7);
+      const hasKQ = hand.some(c => c.rank === 6 || c.rank === 5);
+      let idx = 0, targetId = null, guess = null;
+      if (has7 && hasKQ) {
+        idx = hand.findIndex(c => c.rank === 7); // 强制打伯爵夫人
+      } else {
+        for (let i = 1; i < hand.length; i++) if (hand[i].rank < hand[idx].rank) idx = i;
+      }
+      const card = hand[idx];
+      if (card.rank === 1) { targetId = pickTarget(); guess = 2 + Math.floor(Math.random() * 7); }
+      else if (card.rank === 2) { targetId = pickTarget(); }
+      else if (card.rank === 3) { targetId = pickTarget(); }
+      else if (card.rank === 5) {
+        const others = (last.players || []).filter(p => p.alive && p.id !== botId && !p.immune);
+        targetId = others.length ? others[Math.floor(Math.random() * others.length)].id : botId;
+      }
+      else if (card.rank === 6) { targetId = pickTarget(); }
+      busy = true;
+      setTimeout(() => {
+        busy = false;
+        if (!last || last.phase !== 'playing' || last.currentId !== botId) return;
+        send({ type: 'll_play', cardIndex: idx, targetId, guess });
+      }, thinkDelay(1100));
+    }
+
+    return function onData(msg) {
+      if (!msg || !msg.type) return;
+      if (msg.type === 'll_hand') { hand = msg.hand || []; handDirty = false; act(); return; }
+      if (msg.type !== 'll_state') return;
+      last = msg;
+      handDirty = true;
+      act();
+    };
+  }
+
+  // ---------- 谁是牛头王 ----------
+  // 简单策略：有安全牌（小于某行行尾）就随机出一张；全不安全则出最大牌；
+  // 需要吃行时选牛头总数最少的一行。
+  function takeT6Brain(botId, send) {
+    let hand = [];
+    let last = null;
+    let busy = false;
+    let handDirty = false;
+
+    function hornsOf(n) {
+      let h = 1;
+      if (n % 10 === 5) h += 1;
+      if (n % 10 === 0) h += 2;
+      if (n % 11 === 0) h += 4;
+      if (n === 55) h += 1;
+      return h;
+    }
+    function chooseCard() {
+      const tails = (last.rows || []).map(r => r[r.length - 1]);
+      if (!tails.length) return hand[0];
+      const maxTail = Math.max(...tails);
+      const safe = hand.filter(c => c < maxTail);
+      if (safe.length) return safe[Math.floor(Math.random() * safe.length)];
+      return Math.max(...hand);
+    }
+    function chooseRow() {
+      let bi = 0, bh = Infinity;
+      (last.rows || []).forEach((row, i) => {
+        const h = row.reduce((s, n) => s + hornsOf(n), 0);
+        if (h < bh) { bh = h; bi = i; }
+      });
+      return bi;
+    }
+
+    function tryAct() {
+      if (!last || busy) return;
+      if (last.phase === 'eat' && last.eatPromptFor === botId) {
+        const rowIndex = chooseRow();
+        busy = true;
+        setTimeout(() => {
+          busy = false;
+          if (!last || last.phase !== 'eat' || last.eatPromptFor !== botId) return;
+          send({ type: 't6_eat', rowIndex });
+        }, thinkDelay(900));
+        return;
+      }
+      if (last.phase !== 'playing') return;
+      if ((last.chosenIds || []).includes(botId)) return;
+      if (handDirty) return; // 等 t6_hand 更新手牌
+      if (!hand.length) return;
+      const card = chooseCard();
+      busy = true;
+      setTimeout(() => {
+        busy = false;
+        if (!last || last.phase !== 'playing') return;
+        if ((last.chosenIds || []).includes(botId)) return;
+        send({ type: 't6_play', card });
+      }, thinkDelay(900));
+    }
+
+    return function onData(msg) {
+      if (!msg || !msg.type) return;
+      if (msg.type === 't6_hand') { hand = msg.hand || []; handDirty = false; tryAct(); return; }
+      if (msg.type !== 't6_state') return;
+      last = msg;
+      handDirty = true;
+      tryAct();
+    };
+  }
+
+  // ---------- 炸弹猫 ----------
+  // 简单策略：出牌阶段优先打出攻击/洗牌/跳过效果牌（攻击 > 洗牌 > 跳过），
+  // 没有可打的效果牌就抽牌；拆弹保留在手里不主动打出。
+  function explodingKittensBrain(botId, send) {
+    let hand = [];
+    let last = null;
+    let busy = false;
+    let handDirty = false;
+
+    function tryAct() {
+      if (!last || busy) return;
+      if (last.phase !== 'playing' || last.currentId !== botId) return;
+      if (handDirty) return; // 等 ek_hand 更新手牌
+      if (!hand.length) return;
+      const findIdx = (types) => hand.findIndex(c => types.includes(c.type));
+      const idx = findIdx(['attack']) >= 0 ? findIdx(['attack'])
+        : findIdx(['shuffle']) >= 0 ? findIdx(['shuffle'])
+        : findIdx(['skip']);
+      busy = true;
+      setTimeout(() => {
+        busy = false;
+        if (!last || last.phase !== 'playing' || last.currentId !== botId) return;
+        if (idx >= 0 && hand[idx] && hand[idx].type !== 'defuse') {
+          send({ type: 'ek_play', cardIndex: idx });
+        } else {
+          send({ type: 'ek_draw' });
+        }
+      }, thinkDelay(1000));
+    }
+
+    return function onData(msg) {
+      if (!msg || !msg.type) return;
+      if (msg.type === 'ek_hand') { hand = msg.hand || []; handDirty = false; tryAct(); return; }
+      if (msg.type !== 'ek_state') return;
+      last = msg;
+      handDirty = true;
+      tryAct();
+    };
+  }
+
+  // ---------- 海盐与纸 ----------
+  // 简单策略：粗略估算手牌组合得分，>=5 或手牌较多时收分，否则继续抽牌。
+  function spEstimate(hand) {
+    const byNum = {}, byColor = {};
+    hand.forEach(c => {
+      byNum[c.num] = (byNum[c.num] || 0) + 1;
+      byColor[c.color] = (byColor[c.color] || 0) + 1;
+    });
+    let s = 0;
+    for (const k in byNum) {
+      const n = byNum[k];
+      if (n >= 3) s += 10; else if (n === 2) s += 3;
+    }
+    for (const k in byColor) {
+      const n = byColor[k];
+      if (n >= 3) s += 3 + (n - 3); else if (n === 2) s += 2;
+    }
+    return s;
+  }
+
+  function seaSaltPaperBrain(botId, send) {
+    let hand = [];
+    let last = null;
+    let busy = false;
+    let handDirty = false;
+
+    function tryAct() {
+      if (!last || busy) return;
+      if (last.phase === 'collect' && last.forcedCollectFor === botId) {
+        busy = true;
+        setTimeout(() => { busy = false; send({ type: 'sp_collect' }); }, thinkDelay(900));
+        return;
+      }
+      if (last.phase !== 'choose' || last.currentId !== botId) return;
+      if (handDirty) return;
+      if (!hand.length) return;
+      const score = spEstimate(hand);
+      const shouldCollect = score >= 5 || hand.length >= 6;
+      busy = true;
+      setTimeout(() => {
+        busy = false;
+        if (!last || last.phase !== 'choose' || last.currentId !== botId) return;
+        send({ type: shouldCollect ? 'sp_collect' : 'sp_pass' });
+      }, thinkDelay(1000));
+    }
+
+    return function onData(msg) {
+      if (!msg || !msg.type) return;
+      if (msg.type === 'sp_hand') { hand = msg.hand || []; handDirty = false; tryAct(); return; }
+      if (msg.type !== 'sp_state') return;
+      last = msg;
+      handDirty = true;
+      tryAct();
+    };
+  }
+
+  // ---------- 翻牌7 ----------
+  // 简单策略：累计越高越倾向停止（>=16 必停，>=12 有六成概率停，否则继续翻）。
+  function flip7Brain(botId, send) {
+    let last = null;
+    let busy = false;
+
+    function tryAct() {
+      if (!last || busy) return;
+      if (last.phase !== 'flipping' || last.currentId !== botId) return;
+      const sum = last.sum || 0;
+      const stop = sum >= 16 || (sum >= 12 && Math.random() < 0.6);
+      busy = true;
+      setTimeout(() => {
+        busy = false;
+        if (!last || last.phase !== 'flipping' || last.currentId !== botId) return;
+        send({ type: stop ? 'f7_stop' : 'f7_flip' });
+      }, thinkDelay(900));
+    }
+
+    return function onData(msg) {
+      if (!msg || msg.type !== 'f7_state') return;
+      last = msg;
+      tryAct();
+    };
+  }
+
+  // ---------- 深海小队 The Crew ----------
+  // 合作吃墩简单策略：任务目标尽量吃墩（跟色出最大、无跟色出任务牌），
+  // 非目标避免吃墩且避免打出任务牌（跟色出最小、无跟色出非任务的最小牌）。
+  function crewBrain(botId, send) {
+    let last = null;
+    let hand = [];
+    let busy = false;
+
+    function cardLabel(c) {
+      const names = { red: '红', blue: '蓝', green: '绿', yellow: '黄', purple: '紫' };
+      return (names[c.color] || c.color) + c.number;
+    }
+
+    function tryAct() {
+      if (!last || busy) return;
+      if (last.phase !== 'playing' || last.currentId !== botId) return;
+      if (!hand.length) return;
+      const lead = last.trick && last.trick.length ? last.trick[0].card.color : null;
+      const isTarget = last.task && last.task.targetId === botId;
+      const taskCard = last.task ? { color: last.task.color, number: last.task.number } : null;
+      const hasTask = hand.some(c => c.color === taskCard.color && c.number === taskCard.number);
+      let pick = null;
+      const leadCards = lead ? hand.map((c, i) => ({ c, i })).filter(x => x.c.color === lead) : [];
+      if (lead) {
+        if (leadCards.length) {
+          if (isTarget) {
+            // 目标：出最大的同色（若手里有任务牌且同色，优先出任务牌争取吃墩）
+            const taskIdx = leadCards.find(x => x.c.color === taskCard.color && x.c.number === taskCard.number);
+            pick = taskIdx ? taskIdx.i : leadCards.reduce((a, b) => (a.c.number >= b.c.number ? a : b)).i;
+          } else {
+            // 非目标：出最小同色，避免打出任务牌
+            const nonTask = leadCards.filter(x => !(x.c.color === taskCard.color && x.c.number === taskCard.number));
+            const pool = nonTask.length ? nonTask : leadCards;
+            pick = pool.reduce((a, b) => (a.c.number <= b.c.number ? a : b)).i;
+          }
+        }
+      } else if (isTarget && hasTask) {
+        // 首墩且目标手里有任务牌：直接打出任务牌搏吃墩
+        pick = hand.findIndex(c => c.color === taskCard.color && c.number === taskCard.number);
+      }
+      if (pick == null) {
+        if (!isTarget) {
+          // 非目标：避免任务牌，出数字最小的牌（让队友赢）
+          const nonTask = hand.map((c, i) => ({ c, i })).filter(x => !(x.c.color === taskCard.color && x.c.number === taskCard.number));
+          const pool = nonTask.length ? nonTask : hand.map((c, i) => ({ c, i }));
+          pick = pool.reduce((a, b) => (a.c.number <= b.c.number ? a : b)).i;
+        } else {
+          // 目标且无任务牌：出最大牌争取赢墩
+          pick = hand.reduce((a, b, i, arr) => (arr[a].number >= b.number ? a : i), 0);
+        }
+      }
+      busy = true;
+      setTimeout(() => {
+        busy = false;
+        if (!last || last.phase !== 'playing' || last.currentId !== botId) return;
+        send({ type: 'cr_play', cardIndex: pick });
+      }, thinkDelay(900));
+    }
+
+    return function onData(msg) {
+      if (!msg || !msg.type) return;
+      if (msg.type === 'cr_hand') { hand = msg.hand || []; tryAct(); return; }
+      if (msg.type !== 'cr_state') return;
+      last = msg;
+      tryAct();
+    };
+  }
+
+  // ---------- 阿瓦隆 Avalon ----------
+  // 简单策略：队长优先提名同伙（坏人），队伍投票随机偏赞成，
+  // 任务投票按阵营（好人必成功，坏人 70% 失败），刺客随机指认。
+  function avalonBrain(botId, send) {
+    let last = null;
+    let role = null;
+    let evils = [];
+    let busy = false;
+    function act() {
+      if (!last || busy || !role) return;
+      const my = (last.players || []).find(p => p.id === botId);
+      if (!my) return;
+      if (last.phase === 'propose' && last.proposer === botId) {
+        const pool = (last.players || []).filter(p => p.id !== botId);
+        const size = last.needSize || 1;
+        const pick = [];
+        for (const p of pool) { if (evils.includes(p.id) && pick.length < size) pick.push(p.id); }
+        for (const p of pool) { if (!pick.includes(p.id) && pick.length < size) pick.push(p.id); }
+        busy = true;
+        setTimeout(() => { busy = false; send({ type: 'av_choose', ids: pick.slice(0, size) }); }, thinkDelay(500));
+        return;
+      }
+      if (last.phase === 'vote') {
+        busy = true;
+        setTimeout(() => { busy = false; send({ type: 'av_vote', ok: Math.random() < 0.65 }); }, thinkDelay(400));
+        return;
+      }
+      if (last.phase === 'mission' && (last.missionOrder || []).includes(botId)) {
+        const isEvil = role === 'assassin' || role === 'morgana' || role === 'mordred' || role === 'oberon';
+        const ok = isEvil ? Math.random() > 0.3 : true;
+        busy = true;
+        setTimeout(() => { busy = false; send({ type: 'av_mission', ok }); }, thinkDelay(500));
+        return;
+      }
+      if (last.phase === 'assassinate' && role === 'assassin') {
+        const others = (last.players || []).filter(p => p.id !== botId);
+        const t = others[Math.floor(Math.random() * others.length)];
+        busy = true;
+        setTimeout(() => { busy = false; send({ type: 'av_assassinate', targetId: t.id }); }, thinkDelay(600));
+      }
+    }
+    return function onData(msg) {
+      if (!msg || !msg.type) return;
+      if (msg.type === 'av_role') { role = msg.role; evils = msg.evils || []; act(); return; }
+      if (msg.type !== 'av_state') return;
+      last = msg;
+      act();
+    };
+  }
+
+  // ---------- 秘密希特勒 Secret Hitler ----------
+  // 简单策略：随机提名；自由偏赞成 / 法西斯偏反对；
+  // 总统弃掉不利牌、首相执行有利牌（通过私发 sh_hand 拿到政策牌）。
+  function secretHitlerBrain(botId, send) {
+    let last = null;
+    let role = null;
+    let hand = null;
+    let busy = false;
+    function isFascist() { return role === 'fascist' || role === 'hitler'; }
+    function act() {
+      if (!last || busy || !role) return;
+      if (last.phase === 'nominate' && last.president === botId) {
+        const others = (last.players || []).filter(p => p.id !== botId);
+        const t = others[Math.floor(Math.random() * others.length)];
+        busy = true;
+        setTimeout(() => { busy = false; send({ type: 'sh_nominate', targetId: t.id }); }, thinkDelay(500));
+        return;
+      }
+      if (last.phase === 'vote') {
+        const ja = isFascist() ? Math.random() > 0.65 : Math.random() < 0.75;
+        busy = true;
+        setTimeout(() => { busy = false; send({ type: 'sh_vote', ja }); }, thinkDelay(400));
+        return;
+      }
+      if (last.phase === 'president' && last.president === botId && hand && hand.length === 3) {
+        const mine = isFascist() ? 'fas' : 'lib';
+        let idx = hand.findIndex(c => c !== mine);
+        if (idx < 0) idx = 0;
+        busy = true;
+        setTimeout(() => { busy = false; send({ type: 'sh_president', idx }); }, thinkDelay(500));
+        return;
+      }
+      if (last.phase === 'chancellor' && last.chancellor === botId && hand && hand.length === 2) {
+        const mine = isFascist() ? 'fas' : 'lib';
+        const idx = hand.indexOf(mine);
+        busy = true;
+        setTimeout(() => { busy = false; send({ type: 'sh_chancellor', idx: idx >= 0 ? idx : 0 }); }, thinkDelay(500));
+        return;
+      }
+      if (last.phase === 'investigate' && last.president === botId) {
+        const others = (last.players || []).filter(p => p.id !== botId);
+        const t = others[Math.floor(Math.random() * others.length)];
+        busy = true;
+        setTimeout(() => { busy = false; send({ type: 'sh_investigate', targetId: t.id }); }, thinkDelay(500));
+        return;
+      }
+      if (last.phase === 'pick' && last.president === botId) {
+        const others = (last.players || []).filter(p => p.id !== botId);
+        const t = others[Math.floor(Math.random() * others.length)];
+        busy = true;
+        setTimeout(() => { busy = false; send({ type: 'sh_pick', targetId: t.id }); }, thinkDelay(500));
+        return;
+      }
+      if (last.phase === 'assassinate' && last.president === botId) {
+        const others = (last.players || []).filter(p => p.id !== botId);
+        const t = others[Math.floor(Math.random() * others.length)];
+        busy = true;
+        setTimeout(() => { busy = false; send({ type: 'sh_assassinate', targetId: t.id }); }, thinkDelay(600));
+      }
+    }
+    return function onData(msg) {
+      if (!msg || !msg.type) return;
+      if (msg.type === 'sh_role') { role = msg.role; act(); return; }
+      if (msg.type === 'sh_hand') { hand = msg.cards || []; act(); return; }
+      if (msg.type !== 'sh_state') return;
+      last = msg;
+      act();
+    };
+  }
+
+  // ---------- 矮人矿坑 Saboteur ----------
+  // 简单策略：坏矮人优先用破坏工具；否则尝试放第一张能放的路径牌；
+  // 放不下就修理自己/看地图，最后弃牌。接口计算与服务端保持一致。
+  function saboteurBrain(botId, send) {
+    const PATH_BASE = {
+      'I': '1010', 'I2': '0101', 'L1': '1100', 'L2': '0110', 'L3': '0011', 'L4': '1001',
+      'T1': '1110', 'T2': '0111', 'T3': '1011', 'T4': '1101', 'X': '1111',
+      'D1': '1000', 'D2': '0100', 'D3': '0010', 'D4': '0001',
+    };
+    function rotate(s, n) {
+      n = ((n % 4) + 4) % 4;
+      return n === 0 ? s : s.slice(n) + s.slice(0, n);
+    }
+    function cardInter(card, rot) { return rotate(PATH_BASE[card.type] || '0000', rot); }
+    function canPlace(inter, x, y, boardMap) {
+      if (x < 0 || x >= 7 || y < 0 || y >= 6) return false;
+      if (boardMap[x + ',' + y]) return false;
+      const dirs = [[0,-1,0],[1,0,1],[0,1,2],[-1,0,3]];
+      let hasNeighbor = false;
+      for (const [dx, dy, d] of dirs) {
+        const nb = boardMap[(x + dx) + ',' + (y + dy)];
+        if (!nb) continue;
+        hasNeighbor = true;
+        const nInter = nb.kind === 'start' ? '1000' : nb.kind === 'gold' ? '0010' : cardInter(nb, nb.rot || 0);
+        if (inter[d] !== nInter[(d + 2) % 4]) return false;
+      }
+      return hasNeighbor;
+    }
+    let last = null;
+    let team = null;
+    let hand = [];
+    let busy = false;
+    function act() {
+      if (!last || busy || !team) return;
+      if (last.phase !== 'playing') return;
+      const cur = (last.players || [])[last.currentIdx];
+      if (!cur || cur.id !== botId) return;
+      if (cur.broken) { busy = true; setTimeout(() => { busy = false; send({ type: 'sb_discard', cardIdx: -1 }); }, thinkDelay(400)); return; }
+      const boardMap = {};
+      (last.board || []).forEach(c => { boardMap[c.x + ',' + c.y] = c; });
+      // 坏矮人：优先破坏好矮人
+      if (team === 'bad') {
+        const ti = hand.findIndex(c => c.type === 'broken');
+        if (ti >= 0) {
+          const targets = (last.players || []).filter(p => p.id !== botId && !p.broken);
+          if (targets.length) {
+            busy = true;
+            setTimeout(() => { busy = false; send({ type: 'sb_tool', toolIdx: ti, targetId: targets[0].id }); }, thinkDelay(500));
+            return;
+          }
+        }
+      }
+      // 尝试放路径牌：遍历手牌、空位、旋转，找第一个合法放置
+      const emptyCells = [];
+      for (let y = 0; y < 6; y++) for (let x = 0; x < 7; x++) if (!boardMap[x + ',' + y]) emptyCells.push({ x, y });
+      for (let i = 0; i < hand.length; i++) {
+        const card = hand[i];
+        if (!PATH_BASE[card.type]) continue;
+        for (const cell of emptyCells) {
+          for (let r = 0; r < 4; r++) {
+            const inter = cardInter(card, r);
+            if (canPlace(inter, cell.x, cell.y, boardMap)) {
+              busy = true;
+              const rr = r, cc = { ...cell }, ii = i;
+              setTimeout(() => { busy = false; send({ type: 'sb_play', cardIdx: ii, x: cc.x, y: cc.y, rot: rr }); }, thinkDelay(500));
+              return;
+            }
+          }
+        }
+      }
+      // 修理自己 / 地图
+      const ri = hand.findIndex(c => c.type === 'repair');
+      if (ri >= 0) { busy = true; setTimeout(() => { busy = false; send({ type: 'sb_tool', toolIdx: ri, targetId: botId }); }, thinkDelay(500)); return; }
+      const mi = hand.findIndex(c => c.type === 'map');
+      if (mi >= 0) { busy = true; setTimeout(() => { busy = false; send({ type: 'sb_tool', toolIdx: mi, targetId: null }); }, thinkDelay(500)); return; }
+      // 弃牌
+      busy = true;
+      setTimeout(() => { busy = false; send({ type: 'sb_discard', cardIdx: 0 }); }, thinkDelay(400));
+    }
+    return function onData(msg) {
+      if (!msg || !msg.type) return;
+      if (msg.type === 'sb_role') { team = msg.team; act(); return; }
+      if (msg.type === 'sb_hand') { hand = msg.hand || []; act(); return; }
+      if (msg.type === 'sb_state') { last = msg; act(); }
+    };
+  }
+
+  // ---------- 花火 Hanabi ----------
+  // 简单策略（作弊视角，通过 hn_cheat 拿到自己的真实手牌）：
+  // 优先打出可上堆的牌 → 否则弃掉已不可能再打的安全牌 → 否则提示一位队友关键数字。
+  function hanabiBrain(botId, send) {
+    let last = null;
+    let cheat = null; // [{color, number}]
+    let busy = false;
+
+    function tryAct() {
+      if (!last || busy) return;
+      if (last.phase !== 'playing' || last.currentId !== botId) return;
+      if (!cheat || !cheat.length) return;
+      // 1) 可打的牌：number === 对应色堆顶 + 1
+      for (let i = 0; i < cheat.length; i++) {
+        const c = cheat[i];
+        if (c.number === (last.piles[c.color] || 0) + 1) {
+          busy = true;
+          setTimeout(() => { busy = false; send({ type: 'hn_play', cardIndex: i }); }, thinkDelay(800));
+          return;
+        }
+      }
+      // 2) 安全弃牌：该色堆已 >= 该数字（不可能再打）→ 弃；优先弃数字小的
+      let discardIdx = -1;
+      for (let i = 0; i < cheat.length; i++) {
+        const c = cheat[i];
+        if ((last.piles[c.color] || 0) >= c.number) {
+          if (discardIdx < 0 || cheat[i].number < cheat[discardIdx].number) discardIdx = i;
+        }
+      }
+      if (discardIdx >= 0 && last.hints < last.maxHints) {
+        busy = true;
+        setTimeout(() => { busy = false; send({ type: 'hn_discard', cardIndex: discardIdx }); }, thinkDelay(900));
+        return;
+      }
+      // 3) 提示：选一位队友，提示其手里可上堆牌的数字（找不到则提示第一张牌的数字）
+      if (last.hints <= 0) return;
+      const others = (last.players || []).filter(p => p.id !== botId);
+      if (!others.length) return;
+      const target = others[0];
+      const othersHands = (last.othersHands || {})[target.id] || [];
+      let hintNum = null;
+      for (const c of othersHands) {
+        if (c.number === (last.piles[c.color] || 0) + 1) { hintNum = c.number; break; }
+      }
+      if (hintNum == null && othersHands.length) hintNum = othersHands[0].number;
+      if (hintNum == null) return;
+      busy = true;
+      setTimeout(() => {
+        busy = false;
+        send({ type: 'hn_hint', targetId: target.id, kind: 'number', value: hintNum });
+      }, thinkDelay(1000));
+    }
+
+    return function onData(msg) {
+      if (!msg || !msg.type) return;
+      if (msg.type === 'hn_cheat') { cheat = msg.hand || []; tryAct(); return; }
+      if (msg.type === 'hn_view') {
+        if (!last) last = {};
+        last.othersHands = {};
+        (msg.others || []).forEach(o => { last.othersHands[o.id] = o.hand; });
+        tryAct();
+        return;
+      }
+      if (msg.type !== 'hn_state') return;
+      last = msg;
+      tryAct();
+    };
+  }
+
+  // ---------- 雷霆战机 Thunder ----------
+  // AI 队友：朝最近的敌机/Boss 靠近，躲避敌弹与激光预警红线，自动开火（主机处理射击）。
+  function thunderBrain(botId, send) {
+    let last = null;
+    let myShip = null;
+    let interval = null;
+
+    function decide() {
+      if (!last || last.phase !== 'playing' || !myShip) return;
+      const ship = last.ships[myShip];
+      if (!ship || !ship.alive) return;
+      const x = ship.x, y = ship.y;
+
+      // 目标点：默认屏幕中下方；有敌机则瞄向最近的敌机，有 Boss 则瞄 Boss
+      let tx = x, ty = H_DEFAULT;
+      let nearestE = null, bestD = Infinity;
+      for (const e of (last.enemies || [])) {
+        const d = Math.hypot(e.x - x, e.y - y);
+        if (d < bestD) { bestD = d; nearestE = e; }
+      }
+      if (nearestE) { tx = nearestE.x; ty = y; }
+      if (last.boss) { tx = last.boss.x; ty = y; }
+
+      let evadeX = 0, evadeY = 0;
+
+      // 躲避敌弹
+      let nearestB = null; bestD = Infinity;
+      for (const b of (last.enemyBullets || [])) {
+        if (b.y < y && y - b.y < 220) {
+          const d = Math.hypot(b.x - x, b.y - y);
+          if (d < bestD) { bestD = d; nearestB = b; }
+        }
+      }
+      if (nearestB && bestD < 140) {
+        evadeX = nearestB.x > x ? -1 : 1;
+        evadeY = nearestB.y > y ? -0.4 : 0.3;
+      }
+
+      // 躲避 Boss 激光预警红线：激光从 Boss 指向战机，横向避开射线
+      for (const L of (last.lasers || [])) {
+        if (L.state !== 'warn') continue;
+        // 射线角度，计算战机到射线的垂直距离
+        const dx = x - L.x, dy = y - L.y;
+        const perp = Math.abs(-dx * Math.sin(L.angle) + dy * Math.cos(L.angle));
+        if (perp < L.width + 40) {
+          // 在射线附近，横向逃离
+          const side = -dx * Math.sin(L.angle) + dy * Math.cos(L.angle);
+          evadeX = side >= 0 ? 1 : -1;
+          evadeY = -0.3;
+        }
+      }
+
+      let dirX = 0, dirY = 0;
+      if (evadeX || evadeY) { dirX = evadeX; dirY = evadeY; }
+      else if (Math.abs(tx - x) > 24) dirX = tx > x ? 1 : -1;
+
+      // 归一化（主机也会归一化，这里保持简洁）
+      const dir = { x: dirX, y: dirY };
+      send({ type: 'th_input', dir });
+    }
+
+    return function onData(msg) {
+      if (!msg || !msg.type) return;
+      if (msg.type === 'th_assign') { myShip = msg.ship; return; }
+      if (msg.type === 'th_state') {
+        last = msg;
+        if (!interval) interval = setInterval(decide, 120);
+        return;
+      }
+    };
+  }
+
+  const H_DEFAULT = 600; // AI 默认悬停高度（约屏幕中下）
+
+  // ---------- 染·钟楼谜团 BotC ----------
+  // 简单 AI：夜晚按夜警选择随机目标；白天随机发言、随机提名、随机投票。
+  function botcBrain(botId, send) {
+    let role = null;
+    let busy = false;
+    function think(payload, ms) {
+      busy = true;
+      setTimeout(() => { busy = false; send(payload); }, thinkDelay(ms));
+    }
+    function randOf(a) { return a[Math.floor(Math.random() * a.length)]; }
+    return function onData(msg) {
+      if (!msg || !msg.type) return;
+      if (msg.type === 'botc_role') { role = msg.role; return; }
+      if (msg.type === 'botc_night' && !busy) {
+        const step = msg.step || {};
+        const opts = step.options || [];
+        if (!opts.length) return;
+        if (step.action === 'fortune') {
+          const a = randOf(opts), b = randOf(opts);
+          think({ type: 'botc_action', action: 'fortune', a: a.id, b: b.id }, 700);
+        } else if (step.action === 'poison' || step.action === 'kill') {
+          const t = randOf(opts);
+          think({ type: 'botc_action', action: step.action, target: t.id }, 600);
+        }
+        return;
+      }
+      if (msg.type === 'botc_state' && msg.phase === 'day' && !msg.winner) {
+        const me = (msg.players || []).find(p => p.id === botId);
+        if (!me || !me.alive) return;
+        if (msg.currentNom) {
+          if (!me.voted && !busy) think({ type: 'botc_vote', yes: Math.random() < 0.5 }, 500);
+        } else if (!busy) {
+          const r = Math.random();
+          if (r < 0.12) {
+            const lines = ['我觉得可疑。', '有线索吗？', '我没什么信息。', '先观察看看。', '有人说说夜晚情况吗？'];
+            think({ type: 'botc_chat', text: randOf(lines) }, 800);
+          } else if (r < 0.4) {
+            const others = (msg.players || []).filter(p => p.id !== botId && p.alive);
+            if (others.length) think({ type: 'botc_nominate', target: randOf(others).id }, 700);
+          }
+        }
+      }
+    };
+  }
+
   const GAME_BRAINS = {
     oldmaid: oldMaidBrain,
     blackjack: blackjackBrain,
@@ -422,6 +1167,19 @@ const Bot = (() => {
     werewolf: werewolfBrain,
     cabo: caboBrain,
     horserace: horseRaceBrain,
+    ludo: ludoBrain,
+    loveletter: loveLetterBrain,
+    taket6: takeT6Brain,
+    explodingkittens: explodingKittensBrain,
+    seasaltpaper: seaSaltPaperBrain,
+    flip7: flip7Brain,
+    thecrew: crewBrain,
+    hanabi: hanabiBrain,
+    thunder: thunderBrain,
+    avalon: avalonBrain,
+    secrethitler: secretHitlerBrain,
+    saboteur: saboteurBrain,
+    botc: botcBrain,
   };
 
   return { create, nameFor, avatarFor };

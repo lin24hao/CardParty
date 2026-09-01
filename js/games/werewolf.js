@@ -640,6 +640,31 @@ const Werewolf = (() => {
     return wrap;
   }
 
+  function showRules() {
+    const body =
+      '<div class="ww-rules">' +
+      '<p class="ww-rules-lead">天黑请闭眼，狼人出来杀人；天亮后大家投票，找出隐藏的狼人。</p>' +
+      '<div class="ww-rules-sec"><div class="ww-rules-h">🎭 阵营</div>' +
+      '<p><b style="color:#e5484d">🐺 狼人阵营</b>：夜晚袭击一名玩家，白天伪装成好人，目标是让狼人数 ≥ 好人数。</p>' +
+      '<p><b style="color:#18a058">😇 好人阵营</b>：找出并放逐所有狼人。</p></div>' +
+      '<div class="ww-rules-sec"><div class="ww-rules-h">🃏 角色技能</div>' +
+      '<p><b>🐺 狼人</b>：每个夜晚与队友商议，共同选择一名玩家袭击。</p>' +
+      '<p><b>🔮 预言家</b>：每个夜晚可以查验一名玩家，得知其是否为狼人。</p>' +
+      '<p><b>🧪 女巫</b>：拥有一瓶<b>解药</b>（救活当晚被袭击者）和一瓶<b>毒药</b>（毒死一名玩家），各只能用一次，且同一晚不能同时使用。</p>' +
+      '<p><b>🌾 平民</b>：没有特殊技能，靠发言和投票找出狼人。</p></div>' +
+      '<div class="ww-rules-sec"><div class="ww-rules-h">🌗 游戏流程</div>' +
+      '<p><b>夜晚</b>：狼人袭击 → 预言家查验 → 女巫决定是否用药。</p>' +
+      '<p><b>白天</b>：公布昨夜死亡（死亡者身份公开）→ 全员投票放逐一名玩家，平票则无人出局。</p>' +
+      '<p>日夜交替进行，直到一方获胜。</p></div>' +
+      '<div class="ww-rules-sec"><div class="ww-rules-h">🏆 胜负判定</div>' +
+      '<p>狼人全部死亡 → <b style="color:#18a058">好人阵营获胜</b>。</p>' +
+      '<p>存活狼人数 ≥ 存活好人数 → <b style="color:#e5484d">狼人阵营获胜</b>。</p></div>' +
+      '<div class="ww-rules-sec"><div class="ww-rules-h">👥 人数与身份</div>' +
+      '<p>6 人：2 狼 · 7 人：2 狼 · 8 人：3 狼（均含预言家、女巫，其余平民）。</p></div>' +
+      '</div>';
+    UI.modal('🐺 狼人杀 · 规则', body, [{ label: '知道了' }]);
+  }
+
   function render() {
     if (!ctx) return;
     const c = ctx.container;
@@ -650,10 +675,19 @@ const Werewolf = (() => {
 
     const tb = document.createElement('div');
     tb.className = 'game-topbar';
+    const left = document.createElement('div');
+    left.style.cssText = 'display:flex;gap:8px;align-items:center;';
     const title = document.createElement('span');
     title.className = 'game-title';
     title.textContent = '🐺 狼人杀';
-    tb.appendChild(title);
+    left.appendChild(title);
+    const rulesBtn = document.createElement('button');
+    rulesBtn.className = 'btn btn-ghost btn-sm';
+    rulesBtn.textContent = '📖 规则';
+    rulesBtn.title = '查看规则';
+    rulesBtn.addEventListener('click', showRules);
+    left.appendChild(rulesBtn);
+    tb.appendChild(left);
     const right = document.createElement('div');
     right.style.cssText = 'display:flex;gap:8px;align-items:center;';
     if (ctx.solo) {

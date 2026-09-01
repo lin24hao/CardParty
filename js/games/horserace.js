@@ -204,6 +204,24 @@ const HorseRace = (() => {
   function suitColor(suit) { return (suit === '♥' || suit === '♦') ? 'var(--red)' : 'var(--ink)'; }
   function suitBg(suit) { return (suit === '♥' || suit === '♦') ? '#fdecec' : '#eef0f6'; }
 
+  function showRules() {
+    const html =
+      '<div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;">' +
+      '<span style="font-size:22px;">♠</span>' +
+      '<span style="font-size:22px;color:var(--red)">♥</span>' +
+      '<span style="font-size:22px;color:var(--red)">♦</span>' +
+      '<span style="font-size:22px;">♣</span>' +
+      '<span style="margin-left:6px;color:var(--ink);font-weight:700;">四匹花色马沿 A~K 共 13 格赛道竞速</span>' +
+      '</div>' +
+      '<ol style="margin:8px 0 0 0;padding-left:20px;color:var(--ink);">' +
+      '<li style="margin-bottom:8px;"><b>认领</b>：开局每人选一匹看好的马（可多人同选一匹）。</li>' +
+      '<li style="margin-bottom:8px;"><b>翻牌</b>：每张牌对应一个花色，翻到哪个花色那匹马就前进一步。</li>' +
+      '<li style="margin-bottom:8px;"><b>联机</b>：玩家轮流手动翻牌，轮到你点「🂠 翻牌」；<b>人机</b>：房主自动翻牌。</li>' +
+      '<li style="margin-bottom:8px;"><b>夺冠</b>：最先翻完自己 13 张、冲到终点的花色获胜，认领它的玩家胜出（可并列）。</li>' +
+      '</ol>';
+    UI.modal('🏇 赛马规则', html, [{ label: '知道了', primary: true }]);
+  }
+
   function render() {
     if (!ctx) return;
     const c = ctx.container;
@@ -217,6 +235,12 @@ const HorseRace = (() => {
     // 顶栏
     const tb = document.createElement('div');
     tb.className = 'game-topbar';
+    const rulesBtn = document.createElement('button');
+    rulesBtn.className = 'btn btn-ghost btn-sm';
+    rulesBtn.textContent = '📖 规则';
+    rulesBtn.style.marginRight = '10px';
+    rulesBtn.addEventListener('click', showRules);
+    tb.appendChild(rulesBtn);
     const title = document.createElement('span');
     title.className = 'game-title';
     title.textContent = '🏇 赛马';

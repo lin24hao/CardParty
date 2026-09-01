@@ -7,6 +7,21 @@ const GAME_REGISTRY = [
   { key: 'werewolf',  name: '狼人杀',     icon: '🐺', desc: '天黑请闭眼，找出狼人，好人阵营获胜', min: 6, max: 8, available: true,  module: () => Werewolf },
   { key: 'cabo',      name: '卡波',       icon: '🦄', desc: '记牌换牌把总分压到最低，喊卡波结束比拼', min: 2, max: 4, available: true,  module: () => Cabo },
   { key: 'horserace', name: '赛马',       icon: '🏇', desc: '四花色马竞速，认领一匹看谁先冲线',     min: 2, max: 8, available: true,  module: () => HorseRace },
+  { key: 'ludo',      name: '飞行棋',     icon: '✈️', desc: '掷骰起飞踩人回家，4 架飞机先进港者胜',   min: 2, max: 4, available: true,  module: () => Ludo },
+  { key: 'bubble_pvp', name: '泡泡龙对抗', icon: '💥', desc: '双人各自场地消除泡泡，一方出局后等对方也出局，按比分定胜负', min: 2, max: 2, available: true, solo: false, module: () => BubblePvp },
+  { key: 'bubble_coop', name: '泡泡龙合作', icon: '🤝', desc: '双炮台同场自由发射，合力消除泡泡累计 120 分通关', min: 2, max: 2, available: true, solo: false, module: () => BubbleCoop },
+  { key: 'loveletter', name: '情书',     icon: '💌', desc: '角色牌推理淘汰，猜中对方手牌即可取胜', min: 2, max: 6, available: true, module: () => LoveLetter },
+  { key: 'taket6',     name: '谁是牛头王', icon: '🐂', desc: '数字接龙别吃牛头，10 回合牛头最少者胜', min: 2, max: 10, available: true, module: () => TakeT6 },
+  { key: 'explodingkittens', name: '炸弹猫', icon: '💣', desc: '轮流抽牌摸雷，无拆弹就出局，最后存活者胜', min: 2, max: 5, available: true, module: () => ExplodingKittens },
+  { key: 'seasaltpaper', name: '海盐与纸', icon: '🌊', desc: '海洋收集卡牌，抽牌或收分，翻面加注冲高分', min: 2, max: 4, available: true, module: () => SeaSaltPaper },
+  { key: 'flip7',     name: '翻牌7',       icon: '🎲', desc: '翻数字牌累计，超21或翻到7就炸，见好就收凑对加分', min: 2, max: 8, available: true, module: () => Flip7 },
+  { key: 'thecrew',   name: '深海小队',     icon: '🐬', desc: '合作吃墩，全员完成9局任务卡目标即全队获胜', min: 2, max: 5, available: true, module: () => Crew },
+  { key: 'hanabi',    name: '花火',        icon: '🎆', desc: '合作烟花，看不到自己的牌，靠提示按序打出五色烟花', min: 2, max: 5, available: true, module: () => Hanabi },
+  { key: 'thunder',   name: '雷霆战机',   icon: '⚡', desc: '双人合作打飞机，躲避弹幕击破 Boss，共享生命', min: 2, max: 2, available: true, module: () => Thunder },
+  { key: 'avalon',    name: '阿瓦隆',     icon: '🗡️', desc: '身份推理组队投票，梅林先知，刺客可刺杀翻盘', min: 5, max: 10, available: true, module: () => Avalon },
+  { key: 'secrethitler', name: '秘密希特勒', icon: '☠️', desc: '总统链发政策牌，自由派与法西斯斗智，暗杀希特勒', min: 5, max: 10, available: true, module: () => SecretHitler },
+  { key: 'saboteur',  name: '矮人矿坑',   icon: '⛏️', desc: '铺路径挖金矿，坏矮人破坏捣乱，牌堆耗尽计分', min: 3, max: 10, available: true, module: () => Saboteur },
+  { key: 'botc',      name: '染·钟楼谜团', icon: '🕯️', desc: '说书人调度身份推理，夜晚行动白天处决，恶魔存活到仅剩两人即邪恶获胜', min: 5, max: 12, available: true, module: () => BotC },
   { key: 'doudizhu',  name: '斗地主',     icon: '🎴', desc: '3 人国民玩法，敬请期待',           min: 3, max: 3, available: false },
   { key: 'memory',    name: '记忆翻牌',   icon: '🧠', desc: '2-4 人回合制记忆挑战，敬请期待',   min: 2, max: 4, available: false },
 ];
@@ -115,7 +130,7 @@ const App = (() => {
         '<div class="game-name">' + g.name + '</div>' +
         '<div class="game-desc">' + UI.esc(g.desc) + '</div>' +
         '<span class="game-tag' + (g.available ? '' : ' soon') + '">' + (g.available ? g.min + '-' + g.max + ' 人' : '敬请期待') + '</span>' +
-        (g.available ? '<span class="game-tag solo-tag">支持人机</span>' : '');
+        (g.available && g.solo !== false ? '<span class="game-tag solo-tag">支持人机</span>' : '');
       if (g.available) card.addEventListener('click', () => openModePicker(g.key));
       grid.appendChild(card);
     });
@@ -141,16 +156,23 @@ const App = (() => {
       '</div>';
 
     const canOnline = netState.level === 'ready';
-    const actions = [
-      { label: '🤖 人机对战', primary: true, onClick: () => startSolo(key, Math.max(def.min, count) - 1) },
+    const actions = [];
+    if (def.solo !== false) {
+      actions.push({ label: '🤖 人机对战', primary: true, onClick: () => startSolo(key, Math.max(def.min, count) - 1) });
+    }
+    actions.push(
       { label: canOnline ? '创建联机房间' : '联机不可用', onClick: () => { if (canOnline) doCreate(key); } },
       { label: '取消' },
-    ];
+    );
 
     UI.modal(def.icon + ' ' + def.name, html, actions);
 
     const hint = document.getElementById('mode-hint');
     const update = () => {
+      if (def.solo === false) {
+        hint.innerHTML = '该玩法仅支持联机对战，邀请 1 位朋友一起玩。';
+        return;
+      }
       hint.innerHTML = '你将与 <b>' + (count - 1) + '</b> 位机器人对战。' +
         (canOnline ? '也可以开房间叫朋友进来。' : '当前无法联机，只能人机。');
     };
@@ -181,7 +203,7 @@ const App = (() => {
   // ---------- 单机人机 ----------
   function startSolo(key, botCount) {
     const def = GAME_REGISTRY.find(g => g.key === key);
-    if (!def || !def.available) return;
+    if (!def || !def.available || def.solo === false) return;
     ensureName();
     Net.enterLocal('me-' + Math.floor(Math.random() * 1e6));
     Lobby.disconnect();
