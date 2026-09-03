@@ -437,7 +437,7 @@ const Bot = (() => {
         if (last.phase === 'choose') {
           const moves = last.moves || [];
           if (!moves.length) return;
-          const takeoff = moves.find(m => m.from === -1);
+          const takeoff = moves.find(m => m.from < 0);
           const take = moves.find(m => m.take);
           let mv = takeoff || take;
           if (!mv) {
@@ -446,6 +446,55 @@ const Bot = (() => {
           send({ type: 'ludo_move', fromPos: mv.from });
         }
       }, thinkDelay(1000));
+    };
+  }
+
+  // ---------- 泡泡龙合作 ----------
+  // 自由发射节奏：收到共享场地下一次状态后，冷却结束就发射；
+  // 评估角度时优先打向己方炮台附近同色密度高/近竖直的区域。
+  function bubbleCoopBrain(botId, send) {
+    let last = null;
+    // 初始冷却：开局给一段“思考”时间，避免人机在发牌瞬间抢射
+    let cooldownUntil = Date.now() + 900 + Math.random() * 800;
+
+    // 逐个候选角度模拟弹道（flyTrail 不修改 grid），挑落点同色邻居最多、且尽量靠上的角度
+    function pickAngle() {
+      const BC = window.BubbleCore;
+      if (!BC || !last || !last.board) return -30;
+      const grid = last.board;
+      const q = last.queue || [];
+      const color = q[0] || 'r';
+      const sx = last.launcherX != null ? last.launcherX : BC.COLS * BC.CELL_W / 3;
+      // 与玩家一致的角度范围：左右都覆盖
+      const angles = [-72, -54, -36, -18, 0, 18, 36, 54, 72];
+      let best = 0, bestScore = -Infinity;
+      for (const a of angles) {
+        let ft = null;
+        try { ft = BC.flyTrail(grid, sx, BC.LAUNCH_Y, a); } catch (e) { ft = null; }
+        if (!ft || !ft.cell) continue;
+        let same = 0;
+        for (const nb of BC.neighbors(ft.cell.r, ft.cell.c)) {
+          if (grid[nb[0]][nb[1]] === color) same++;
+        }
+        // 同色邻居越多越好；落点越靠上越安全；略偏好竖直；再加一点随机避免呆板
+        const s = same * 3 + (BC.ROWS - ft.cell.r) * 0.25 - Math.abs(a) / 90 + Math.random() * 0.6;
+        if (s > bestScore) { bestScore = s; best = a; }
+      }
+      return bestScore === -Infinity ? 0 : best;
+    }
+
+    function tryAct() {
+      const now = Date.now();
+      if (!last || last.over || last.failed) return;
+      if (now < cooldownUntil) return;
+      cooldownUntil = now + 1200 + Math.random() * 700;
+      send({ type: 'bubble_coop_shot', angle: pickAngle() });
+    }
+
+    return function onData(msg) {
+      if (!msg || msg.type !== 'bubble_coop_state') return;
+      last = msg;
+      tryAct();
     };
   }
 
@@ -1170,6 +1219,9 @@ const Bot = (() => {
     ludo: ludoBrain,
     loveletter: loveLetterBrain,
     taket6: takeT6Brain,
+    bubble_coop: bubbleCoopBrain,
+    // 注意：这里登记的每个 brain 必须在本文件里有对应实现，
+    // 否则引用未定义标识符会让整个 Bot 模块初始化失败（所有人机玩法一起失效）。
     explodingkittens: explodingKittensBrain,
     seasaltpaper: seaSaltPaperBrain,
     flip7: flip7Brain,
@@ -1184,3 +1236,4 @@ const Bot = (() => {
 
   return { create, nameFor, avatarFor };
 })();
+window.Bot = Bot;

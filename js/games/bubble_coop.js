@@ -15,9 +15,23 @@ window.BubbleCoop = (() => {
   let canvas = null;
   let canvasGrid = BC.makeGrid();
   let canvasOpts = { launchers: [launcher(COLS * CELL_W / 3), launcher(COLS * CELL_W * 2 / 3)], warning: false, live: true, fx: [] };
-  let angle = -90, aiming = false;
+  let angle = -45, aiming = false;
+  let myIdx = 0;            // 我的炮台在 launchers 数组中的下标（1 号位=0，2 号位=1）
+  let lastShotAt = 0;
+  let bound = [];           // 已绑定的 window 监听，重进游戏时统一解绑
+  const MAX_AIM = 78;       // 炮台可旋转到的最大偏角（0=正上，正=右，负=左）
+  const SHOT_CD = 260;      // 本地连发间隔，避免飞行还没播完就又射一发
 
-  function launcher(x) { return { x, angle: -90, color: 'r', active: false }; }
+  function launcher(x) { return { x, angle: -90, color: 'r', active: true }; }
+
+  function on(target, type, fn, opts) {
+    target.addEventListener(type, fn, opts);
+    bound.push([target, type, fn]);
+  }
+  function unbind() {
+    bound.forEach(b => { try { b[0].removeEventListener(b[1], b[2]); } catch (e) { /* ignore */ } });
+    bound = [];
+  }
 
   function makeState() {
     const players = {};
@@ -46,7 +60,9 @@ window.BubbleCoop = (() => {
     const before = JSON.stringify(grid);
     const sx = st.players[id].launcherX;
     const ft = BC.flyTrail(grid, sx, BC.LAUNCH_Y, payload.angle);
-    if (!ft.cell) { q.pop(); q.unshift(color); return null; }
+    if (!ft || !ft.cell) { q.pop(); q.unshift(color); return null; }
+    const anim = BC.makeAnim(ft.trail, color, BC.LAUNCH_Y);
+    const flyMs = anim ? anim.dur : 0;
     const res = BC.resolve(grid, ft.cell, color);
     st.score += res.removed * 10 + res.dropped * 5;
     const ev = [];
@@ -66,10 +82,18 @@ window.BubbleCoop = (() => {
     } else if (st.score >= TARGET) {
       st.over = true; st.win = true;
     }
-    return { ev, fx: BC.makeFx(ev, Date.now()) };
+    // 特效延后到飞行落地那一刻再播
+    return { ev, fx: BC.makeFx(ev, Date.now() + flyMs), anim, hideCell: ft.cell };
   }
 
-  function broadcastState(fx) {
+  // 主机本地发射（房主自己操作时走这里，等价于收到客机的 MSG_SHOT）
+  function hostInput(fromId, data) {
+    if (!st || st.over) return;
+    const res = applyShot(fromId, data);
+    if (res) broadcastState(res.fx, res.anim, res.hideCell);
+  }
+
+  function broadcastState(fx, anim, hideCell) {
     const ids = Object.keys(st.players);
     for (const id of ids) {
       const msg = {
@@ -78,7 +102,7 @@ window.BubbleCoop = (() => {
         queue: st.queues[id],
         launcherX: st.players[id].launcherX,
         score: st.score, failed: st.failed, over: st.over, win: st.win,
-        fx,
+        fx, anim, hideCell,
       };
       if (id === Net.myId()) applyState(msg); else Net.sendTo(id, msg);
     }
@@ -96,7 +120,9 @@ window.BubbleCoop = (() => {
   // ---------- 客户端 ----------
   function init(c) {
     ctx = c;
-    angle = -90; aiming = false; view = null;
+    unbind();
+    angle = -45; aiming = false; view = null;
+    myIdx = 0; lastShotAt = 0;
     buildUI();
     if (ctx.isHost) hostStart();
   }
@@ -125,37 +151,47 @@ window.BubbleCoop = (() => {
 
   function bindInput() {
     if (!canvas) return;
-    const myL = () => canvasOpts.launchers[0];
+    const myL = () => canvasOpts.launchers[myIdx] || canvasOpts.launchers[0];
+    const clampAim = (a) => Math.max(-MAX_AIM, Math.min(MAX_AIM, a));
+
+    // 画布被 CSS 缩放过（width:100%），必须把鼠标坐标换算回画布内部坐标
     const setAngle = (ev) => {
       const rect = canvas.getBoundingClientRect();
-      const cx = (ev.touches ? ev.touches[0].clientX : ev.clientX) - rect.left;
-      const cy = (ev.touches ? ev.touches[0].clientY : ev.clientY) - rect.top;
+      if (!rect.width) return;
+      // 用逻辑坐标而非 canvas.width/height —— 首帧渲染前画布还是默认 300x150
+      const scale = (COLS * CELL_W) / rect.width;
+      const pt = ev.touches ? ev.touches[0] : ev;
+      const px = (pt.clientX - rect.left) * scale;
+      const py = (pt.clientY - rect.top) * scale;
       const l = myL();
-      let a = Math.atan2(cx - l.x, rect.height - 16 - cy) * 180 / Math.PI;
-      a = Math.max(-160, Math.min(-20, a));
+      const dyUp = BC.LAUNCH_Y - py;
+      if (dyUp <= 6) return;                       // 指针在炮口下方，不响应
+      const a = clampAim(Math.atan2(px - l.x, dyUp) * 180 / Math.PI);
       angle = a;
       l.angle = a; l.active = true;
+      BC.ensureAnim();
     };
+
     canvas.addEventListener('mousedown', (ev) => { aiming = true; setAngle(ev); ev.preventDefault(); });
     canvas.addEventListener('touchstart', (ev) => { aiming = true; setAngle(ev); ev.preventDefault(); }, { passive: false });
-    window.addEventListener('mousemove', (ev) => { if (aiming) setAngle(ev); });
-    window.addEventListener('touchmove', (ev) => { if (aiming) { setAngle(ev); ev.preventDefault(); } }, { passive: false });
+    on(window, 'mousemove', (ev) => { if (aiming) setAngle(ev); });
+    on(window, 'touchmove', (ev) => { if (aiming) { setAngle(ev); ev.preventDefault(); } }, { passive: false });
     const release = () => {
       if (!aiming) return;
       aiming = false;
-      myL().active = false;
       if (!isOver()) sendShot();
     };
-    window.addEventListener('mouseup', release);
-    window.addEventListener('touchend', release);
-    window.addEventListener('keydown', (ev) => {
+    on(window, 'mouseup', release);
+    on(window, 'touchend', release);
+    on(window, 'keydown', (ev) => {
       const l = myL();
       if (ev.key === 'ArrowLeft' || ev.key === 'ArrowRight') {
-        angle = Math.max(-160, Math.min(-20, angle + (ev.key === 'ArrowLeft' ? -4 : 4)));
+        angle = clampAim(angle + (ev.key === 'ArrowLeft' ? -4 : 4));
         l.angle = angle; l.active = true;
+        BC.ensureAnim();
       } else if (ev.key === ' ' || ev.key === 'Enter') {
         ev.preventDefault();
-        sendShot();
+        if (!isOver()) sendShot();
       }
     });
     const btn = document.getElementById('coop-reset');
@@ -167,6 +203,9 @@ window.BubbleCoop = (() => {
 
   function sendShot() {
     if (isOver()) return;
+    const now = Date.now();
+    if (now - lastShotAt < SHOT_CD) return;
+    lastShotAt = now;
     const msg = { type: MSG_SHOT, angle };
     if (ctx.isHost) hostInput(Net.myId(), msg);
     else Net.sendToHost(msg);
@@ -184,12 +223,20 @@ window.BubbleCoop = (() => {
     l0.x = COLS * CELL_W / 3; l1.x = COLS * CELL_W * 2 / 3;
     const myL = Math.abs(l0.x - myX) < 2 ? l0 : l1;
     const otherL = myL === l0 ? l1 : l0;
+    myIdx = (myL === l0) ? 0 : 1;
     myL.color = next === '-' ? 'r' : next;
     otherL.color = 'r';
     myL.angle = angle;
+    // 两个炮台都常驻显示，否则松手后自己的炮台会消失
+    myL.active = true;
+    if (otherL.angle == null || otherL.angle <= -90) otherL.angle = 0;
+    otherL.active = true;
     canvasOpts.warning = !!(msg.failed) || BC.bottomRowHas(canvasGrid);
     canvasOpts.fx = msg.fx || [];
     if (msg.fx && msg.fx.some(f => f.type === 'inject')) canvasOpts.sinkOffset = 1;
+    // 飞行动画：所有客户端用主机下发的同一条轨迹回放
+    canvasOpts.anim = msg.anim || null;
+    canvasOpts.hideCell = msg.hideCell || null;
     BC.attachCanvas(canvas, canvasGrid, canvasOpts);
     BC.ensureAnim();
     const nextEl = document.getElementById('coop-next');
@@ -207,9 +254,7 @@ window.BubbleCoop = (() => {
     if (!ctx || !data || !data.type) return;
     if (ctx.isHost) {
       if (data.type === MSG_SHOT) {
-        if (!st || st.over) return;
-        const res = applyShot(from, data);
-        if (res) broadcastState(res.fx);
+        hostInput(from, data);
       } else if (data.type === MSG_RESTART) {
         newGame(); broadcastState(null);
       }

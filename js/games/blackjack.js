@@ -1,6 +1,6 @@
 // 21点（黑杰克）—— 主机权威
-// 规则：所有玩家与庄家比点，越接近 21 不爆为胜；A 可作 1 或 11。
-// 玩家轮流要牌/停牌，随后庄家自动补到 ≥17，比大小计分。
+// 规则：无庄家。所有玩家各自要牌/停牌，越接近 21 且不爆为胜；
+// 全员停牌或爆牌后开牌比点，点数最高者胜（并列皆胜）。A 可作 1 或 11。
 const Blackjack = (() => {
   let ctx = null;
   let state = null;
@@ -16,7 +16,8 @@ const Blackjack = (() => {
       state = {
         players: ctx.players.map(p => ({ id: p.id, name: p.name, isHost: p.isHost })),
         hands: {}, stood: {}, bust: {}, results: {}, scores: {},
-        dealerHand: [], deck: [], phase: 'idle', current: -1, round: 0, action: '等待发牌',
+        deck: [], phase: 'idle', current: -1, round: 0, action: '等待发牌',
+        flashDeal: false,
       };
       state.players.forEach(p => state.scores[p.id] = 0);
       render();
@@ -34,25 +35,24 @@ const Blackjack = (() => {
       state.bust[p.id] = false;
       state.results[p.id] = null;
     });
-    state.dealerHand = [];
     state.round++;
-    for (let k = 0; k < 2; k++) {
-      state.players.forEach(p => state.hands[p.id].push(state.deck.pop()));
-      state.dealerHand.push(state.deck.pop());
-    }
+    for (let k = 0; k < 2; k++) state.players.forEach(p => state.hands[p.id].push(state.deck.pop()));
     state.phase = 'playing';
     state.action = '第 ' + state.round + ' 局开始，发牌';
+    state.flashDeal = true;
     startTurns();
     push();
+    state.flashDeal = false;
   }
 
   function startTurns() {
     const n = state.players.length;
     for (let k = 0; k < n; k++) {
-      if (!state.stood[state.players[k].id]) { state.current = k; return; }
+      const p = state.players[k];
+      if (!state.stood[p.id]) { state.current = k; return; }
     }
     state.current = -1;
-    dealerPhase();
+    revealAndSettle();
   }
 
   function advance() {
@@ -60,10 +60,11 @@ const Blackjack = (() => {
     const start = state.current;
     for (let k = 1; k <= n; k++) {
       const i = (start + k) % n;
-      if (!state.stood[state.players[i].id]) { state.current = i; return; }
+      const p = state.players[i];
+      if (!state.stood[p.id]) { state.current = i; return; }
     }
     state.current = -1;
-    dealerPhase();
+    revealAndSettle();
   }
 
   function hostAction(fromId, act) {
@@ -88,61 +89,52 @@ const Blackjack = (() => {
     push();
   }
 
-  async function dealerPhase() {
-    state.phase = 'dealer';
-    state.action = '庄家开牌';
+  async function revealAndSettle() {
+    state.phase = 'reveal';
+    state.action = '开牌结算…';
     push();
-    await sleep(800);
-    while (Deck.blackjackValue(state.dealerHand) < 17) {
-      state.dealerHand.push(state.deck.pop());
-      state.action = '庄家补牌';
-      push();
-      await sleep(750);
-    }
+    await sleep(700);
     settle();
     push();
   }
 
   function settle() {
-    const dv = Deck.blackjackValue(state.dealerHand);
-    const dealerBust = dv > 21;
-    const dealerNatural = state.dealerHand.length === 2 && dv === 21;
     state.phase = 'ended';
+    // 计算每位玩家点数，找出未爆牌中的最高点
+    const totals = {};
+    let best = -1;
     state.players.forEach(p => {
-      const hand = state.hands[p.id];
-      const pv = Deck.blackjackValue(hand);
-      const natural = hand.length === 2 && pv === 21;
+      const v = Deck.blackjackValue(state.hands[p.id]);
+      totals[p.id] = v;
+      if (!state.bust[p.id] && v > best) best = v;
+    });
+    // 最高点（含并列）判胜
+    let winners = 0;
+    state.players.forEach(p => {
       let r;
       if (state.bust[p.id]) r = 'lose';
-      else if (dealerBust) r = 'win';
-      else if (natural && dealerNatural) r = 'push';
-      else if (natural) r = 'win';
-      else if (dealerNatural) r = 'lose';
-      else if (pv > dv) r = 'win';
-      else if (pv === dv) r = 'push';
+      else if (totals[p.id] === best) r = 'win';
       else r = 'lose';
       state.results[p.id] = r;
-      if (r === 'win') state.scores[p.id] = (state.scores[p.id] || 0) + 1;
+      if (r === 'win') { winners++; state.scores[p.id] = (state.scores[p.id] || 0) + 1; }
     });
-    state.action = '本局结束';
+    if (winners === 0) {
+      state.action = '全员爆牌，本局无胜者';
+    } else {
+      const names = state.players.filter(p => state.results[p.id] === 'win').map(p => p.name).join('、');
+      state.action = names + ' 以 ' + best + ' 点获胜！';
+    }
   }
 
   function push() {
-    const revealed = state.phase === 'dealer' || state.phase === 'ended';
     const msg = {
       type: 'bj_state',
       players: state.players.map(p => ({ id: p.id, name: p.name, isHost: p.isHost })),
       hands: state.hands,
-      stood: state.stood,
-      bust: state.bust,
-      dealerUp: state.dealerHand.slice(0, revealed ? state.dealerHand.length : 1),
-      dealerRevealed: revealed,
-      dealerTotal: revealed ? Deck.blackjackValue(state.dealerHand) : null,
+      stood: state.stood, bust: state.bust,
       currentId: state.current >= 0 ? state.players[state.current].id : null,
-      phase: state.phase,
-      scores: state.scores,
-      results: state.results,
-      action: state.action,
+      phase: state.phase, scores: state.scores, results: state.results, action: state.action,
+      flashDeal: !!state.flashDeal,
     };
     Net.broadcast(msg);
     render();   // 主机自身也要刷新（客机在收到 bj_state 时刷新）
@@ -161,15 +153,12 @@ const Blackjack = (() => {
   // ---------- 视图 ----------
   function view() {
     if (ctx.isHost) {
-      const revealed = state.phase === 'dealer' || state.phase === 'ended';
       return {
         players: state.players.map(p => ({ id: p.id, name: p.name, isHost: p.isHost })),
         hands: state.hands, stood: state.stood, bust: state.bust,
-        dealerUp: state.dealerHand.slice(0, revealed ? state.dealerHand.length : 1),
-        dealerRevealed: revealed,
-        dealerTotal: revealed ? Deck.blackjackValue(state.dealerHand) : null,
         currentId: state.current >= 0 ? state.players[state.current].id : null,
         phase: state.phase, scores: state.scores, results: state.results, action: state.action,
+        flashDeal: !!state.flashDeal,
       };
     }
     return mirror;
@@ -180,7 +169,7 @@ const Blackjack = (() => {
     else Net.sendToHost({ type: 'bj_action', action: act });
   }
 
-  const RESULT_TEXT = { win: '🏆 胜', lose: '✖ 负', push: '🤝 平' };
+  const RESULT_TEXT = { win: '🏆 胜', lose: '✖ 负' };
 
   function render() {
     if (!ctx) return;
@@ -198,7 +187,7 @@ const Blackjack = (() => {
     const right = document.createElement('div');
     right.style.cssText = 'display:flex;gap:8px;align-items:center;';
     const v = view();
-    const phaseText = { idle: '等待发牌', playing: '玩家要牌', dealer: '庄家阶段', ended: '本局结束' };
+    const phaseText = { idle: '等待发牌', playing: '比点进行中', reveal: '开牌结算', ended: '本局结束' };
     if (ctx.solo) {
       const soloPill = document.createElement('span');
       soloPill.className = 'phase-pill solo';
@@ -206,7 +195,7 @@ const Blackjack = (() => {
       right.appendChild(soloPill);
     }
     const pill = document.createElement('span');
-    pill.className = 'phase-pill' + (v && v.phase === 'ended' ? ' ok' : (v && v.phase === 'dealer' ? ' warn' : ''));
+    pill.className = 'phase-pill' + (v && v.phase === 'ended' ? ' ok' : (v && v.phase === 'reveal' ? ' warn' : ''));
     pill.textContent = v ? (phaseText[v.phase] || v.phase) : '…';
     right.appendChild(pill);
     const leaveBtn = document.createElement('button');
@@ -236,49 +225,36 @@ const Blackjack = (() => {
     });
     frame.appendChild(sb);
 
-    // 庄家
-    const dSeat = document.createElement('div');
-    dSeat.className = 'seat';
-    const dav = UI.avatarEl('dealer', '庄');
-    dav.textContent = '庄';
-    dav.style.background = '#334155';
-    dSeat.appendChild(dav);
-    const dmeta = document.createElement('div');
-    dmeta.className = 'meta';
-    const dnm = document.createElement('div');
-    dnm.className = 'sname';
-    dnm.textContent = '庄家';
-    dmeta.appendChild(dnm);
-    const dst = document.createElement('div');
-    dst.className = 'stag';
-    dst.textContent = v.dealerRevealed ? (v.dealerTotal + ' 点') : '一张暗牌';
-    dmeta.appendChild(dst);
-    dSeat.appendChild(dmeta);
-    const dcards = document.createElement('div');
-    dcards.className = 'cards';
-    v.dealerUp.forEach(cd => dcards.appendChild(UI.cardEl(cd)));
-    if (!v.dealerRevealed) dcards.appendChild(UI.cardBackEl(false));
-    dSeat.appendChild(dcards);
-    frame.appendChild(dSeat);
-
-    // 玩家
+    // 所有玩家（无庄家）
     const seats = document.createElement('div');
     seats.className = 'seats';
     v.players.forEach(p => {
       const hand = v.hands[p.id] || [];
       const total = Deck.blackjackValue(hand);
+      const natural = hand.length === 2 && total === 21;
+
+      let seatCls = 'seat';
+      if (v.phase === 'playing' && v.currentId === p.id) seatCls += ' active';
+      if (v.bust[p.id]) seatCls += ' bust';
+      if (natural && v.phase !== 'ended') seatCls += ' blackjack';
+      if (v.phase === 'ended') {
+        if (v.results[p.id] === 'win') seatCls += ' win';
+        else if (v.results[p.id] === 'lose') seatCls += ' lose';
+      }
+
       const seat = document.createElement('div');
-      seat.className = 'seat' + (v.phase === 'playing' && v.currentId === p.id ? ' active' : '');
+      seat.className = seatCls;
       seat.appendChild(UI.avatarEl(p.id, p.name));
       const meta = document.createElement('div');
       meta.className = 'meta';
       const nm = document.createElement('div');
       nm.className = 'sname';
-      nm.textContent = (p.isBot ? '🤖 ' : '') + p.name + (p.id === myId ? '（你）' : '') + (p.isHost ? ' · 房主' : '');
+      nm.textContent = (p.isBot ? '🤖 ' : '') + p.name + (p.id === myId ? '（你）' : '');
       meta.appendChild(nm);
       const st = document.createElement('div');
       st.className = 'stag';
       let status = v.phase === 'idle' ? '等待发牌' : total + ' 点';
+      if (natural) status += ' · Blackjack!';
       if (v.phase === 'ended' && v.results[p.id]) status += ' · ' + RESULT_TEXT[v.results[p.id]];
       else if (v.bust[p.id]) status += ' · 爆牌';
       else if (v.stood[p.id]) status += ' · 停牌';
@@ -288,7 +264,12 @@ const Blackjack = (() => {
       seat.appendChild(meta);
       const cards = document.createElement('div');
       cards.className = 'cards';
-      hand.forEach(cd => cards.appendChild(UI.cardEl(cd)));
+      hand.forEach((cd, i) => {
+        const el = UI.cardEl(cd);
+        if (v.flashDeal) el.classList.add('deal-in');
+        else if (i === hand.length - 1 && hand.length > 2) el.classList.add('new-pop');
+        cards.appendChild(el);
+      });
       seat.appendChild(cards);
       seats.appendChild(seat);
     });

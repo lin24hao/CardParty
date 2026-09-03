@@ -28,6 +28,15 @@ const UI = (() => {
       el.className = cls;
       return el;
     }
+    if (card.joker) {
+      cls += ' joker';
+      el.className = cls;
+      el.innerHTML =
+        '<span class="corner tl"><b>王</b><i>🃏</i></span>' +
+        '<span class="pip">🃏</span>' +
+        '<span class="corner br"><b>王</b><i>🃏</i></span>';
+      return el;
+    }
     cls += Deck.isRed(card.suit) ? ' red' : ' black';
     el.className = cls;
     el.innerHTML =

@@ -1,5 +1,5 @@
 // 抽鬼牌（Old Maid）—— 主机权威
-// 规则：去掉黑桃Q，51张牌发完，各人先出掉手里的对子；轮流从下家抽一张，抽到能凑对就打出。最后手里剩下鬼牌的人输。
+// 规则：52 张标准牌 + 1 张小王（鬼牌）共 53 张，各人先出掉手里的对子；轮流从下家抽一张，抽到能凑对就打出。最后手里剩下小王的人输。
 // 每回合分为两个阶段，增加代入感与博弈：
 //   arrange（整理）—— 被抽牌的人调整手牌顺序（点两张牌交换位置），然后点「亮牌」；
 //   draw（抽牌）—— 抽牌的人点击对方一张背面牌，抽取该位置（而非随机按钮）。
@@ -26,7 +26,7 @@ const OldMaid = (() => {
     let hands = {}, players = null;
     while (!ok && attempt < 20) {
       attempt++;
-      const deck = Deck.makeDeck().filter(c => !(c.suit === '♠' && c.rank === 'Q'));
+      const deck = Deck.makeDeck().concat([Deck.JOKER]); // 52 张 + 1 张小王
       const shuffled = Deck.shuffle(deck);
       players = ctx.players.map(p => ({ id: p.id, name: p.name, isHost: p.isHost, isBot: p.isBot, out: false }));
       hands = {};
@@ -97,11 +97,34 @@ const OldMaid = (() => {
     if (typeof index !== 'number' || index < 0 || index >= th.length) return;
     const card = th.splice(index, 1)[0];
     const drawer = state.players[idx];
+    // 抽牌方手牌在每轮结算后都是「无对」状态，故最多只会新增一对；partner 即与其凑对的那张
+    const partner = state.hands[fromId].find(c => c.rank === card.rank);
     state.hands[fromId].push(card);
-    let action = drawer.name + ' 抽走了 ' + target.name + ' 的一张牌';
-    const before = state.hands[fromId].length;
-    state.hands[fromId] = removePairs(state.hands[fromId]);
-    if (state.hands[fromId].length < before) action += '，凑成一对打出去了！';
+    const action = drawer.name + ' 抽走了 ' + target.name + ' 的一张牌';
+
+    if (partner) {
+      // 凑成一对：先把抽到的牌加入手牌并一起发光，短暂停留后移除对子 + 上移动画
+      const pair = { a: card, b: partner };
+      state.pendingPair = { playerId: fromId, cards: [card, partner] };
+      state.stage = 'feedback';
+      state.action = action + '，凑成一对打出去了！';
+      pushState();
+      pushHands();
+      render();
+      setTimeout(() => {
+        state.hands[fromId] = removePairs(state.hands[fromId]);
+        state.pendingPair = null;
+        Net.broadcast({ type: 'om_pair', playerId: fromId, name: drawer.name, cards: [pair.a, pair.b] });
+        if (ctx.isHost) showPairFly(drawer.name, [pair.a, pair.b]);
+        finishDraw(idx, state.action);
+      }, 950);
+    } else {
+      finishDraw(idx, action);
+    }
+  }
+
+  // 抽牌结算：更新出局状态、判定胜负并推进下一回合
+  function finishDraw(idx, action) {
     state.players.forEach(p => p.out = state.hands[p.id].length === 0);
     const active = state.players.filter(p => !p.out);
     if (active.length === 1) {
@@ -134,6 +157,7 @@ const OldMaid = (() => {
       stage: state.stage,
       loser: state.loser,
       loserCard: state.loser ? state.hands[state.loser][0] : null,
+      pendingPair: state.pendingPair ? { playerId: state.pendingPair.playerId, cards: state.pendingPair.cards } : null,
       action: state.action,
     };
     Net.broadcast(msg);
@@ -154,6 +178,7 @@ const OldMaid = (() => {
     } else {
       if (data.type === 'om_state') { mirror = data; render(); }
       else if (data.type === 'om_hand') { myHand = data.hand || []; render(); }
+      else if (data.type === 'om_pair') { showPairFly(data.name, data.cards || []); }
     }
   }
 
@@ -168,6 +193,7 @@ const OldMaid = (() => {
         stage: state.stage,
         loser: state.loser,
         loserCard: state.loser ? state.hands[state.loser][0] : null,
+        pendingPair: state.pendingPair ? { playerId: state.pendingPair.playerId, cards: state.pendingPair.cards } : null,
         action: state.action,
       };
     }
@@ -209,7 +235,10 @@ const OldMaid = (() => {
       const loser = v.players.find(p => p.id === v.loser);
       return { cls: 'danger', text: '💀 游戏结束！' + (loser ? loser.name : '') + ' 拿到了鬼牌，输了！' };
     }
-    if (v.stage === 'feedback') return { cls: '', text: v.action };
+    if (v.stage === 'feedback') {
+      const paired = !!v.action && v.action.indexOf('凑成一对') >= 0;
+      return { cls: paired ? 'ok' : '', text: v.action, pop: paired };
+    }
     if (v.stage === 'arrange') {
       if (v.targetId === myId) {
         const drawer = v.players.find(p => p.id === v.turnId);
@@ -233,6 +262,27 @@ const OldMaid = (() => {
       return { cls: '', text: v.action };
     }
     return { cls: '', text: v.action || '' };
+  }
+
+  // 凑成一对的全局特效：居中浮现两张牌，发光 → 上移 → 消失
+  function showPairFly(name, cards) {
+    if (!cards || cards.length === 0) return;
+    const host = document.createElement('div');
+    host.className = 'pair-fly';
+    const label = document.createElement('div');
+    label.className = 'pair-fly-label';
+    label.textContent = '🤝 ' + (name || '') + ' 凑成一对！';
+    host.appendChild(label);
+    const row = document.createElement('div');
+    row.className = 'pair-fly-cards';
+    cards.forEach(cd => {
+      const el = UI.cardEl(cd);
+      el.classList.add('pair-fly-card');
+      row.appendChild(el);
+    });
+    host.appendChild(row);
+    document.body.appendChild(host);
+    setTimeout(() => { if (host.parentNode) host.parentNode.removeChild(host); }, 1450);
   }
 
   function render() {
@@ -282,14 +332,19 @@ const OldMaid = (() => {
     if (!amArrangeTarget) sel = null;
 
     const b = bannerFor(v);
-    frame.appendChild(UI.banner(b.cls, b.text));
+    const ban = UI.banner(b.cls, b.text);
+    if (b.pop) ban.classList.add('pop');
+    frame.appendChild(ban);
 
     // 各玩家座位（上下布局：上面名字/状态，下面一行背面牌）
     const seats = document.createElement('div');
     seats.className = 'seats';
     v.players.forEach(p => {
       const seat = document.createElement('div');
-      seat.className = 'seat seat-stacked' + (v.stage !== 'ended' && v.turnId === p.id ? ' active' : '');
+      let seatCls = 'seat seat-stacked';
+      if (v.stage !== 'ended' && v.turnId === p.id) seatCls += ' active';
+      if (v.stage === 'ended' && p.id === v.loser) seatCls += ' lose';
+      seat.className = seatCls;
 
       const head = document.createElement('div');
       head.className = 'seat-head';
@@ -356,6 +411,10 @@ const OldMaid = (() => {
         el.classList.add('selectable');
         if (sel === i) el.classList.add('selected');
         el.addEventListener('click', () => clickHandCard(i));
+      }
+      // 我刚刚抽牌凑成一对：两张同点数的牌一起发光
+      if (v.pendingPair && v.pendingPair.playerId === myId && v.pendingPair.cards && v.pendingPair.cards.some(pc => pc.rank === cd.rank)) {
+        el.classList.add('pair-glow');
       }
       handWrap.appendChild(el);
     });

@@ -356,6 +356,80 @@ body { padding-bottom: 40px; }
 .banner.ok { background: #eefaf2; color: var(--green); }
 .banner.warn { background: #fff4e0; color: var(--amber); }
 .banner.danger { background: #fdecec; color: var(--red); }
+.banner.pop { animation: banpop .4s ease; }
+@keyframes banpop {
+  0%   { transform: scale(.85); }
+  50%  { transform: scale(1.05); }
+  100% { transform: scale(1); }
+}
+
+/* ===== 座位状态特效（抽鬼牌 / 21点） ===== */
+.seat.lose { border-color: var(--red); background: #fdecec; }
+.seat.win { border-color: var(--green); background: #eefaf2; }
+.seat.bust { border-color: #e11d48; background: #fef1f2; box-shadow: 0 0 0 3px rgba(225, 29, 72, .18); }
+.seat.blackjack { border-color: var(--amber); background: #fff4e0; box-shadow: 0 0 0 3px rgba(245, 158, 11, .3); }
+.dealer-seat { border-color: #334155; background: #f1f5f9; }
+
+/* ===== 卡牌动态特效（抽鬼牌 / 21点） ===== */
+.card.joker {
+  color: #7a3ff2;
+  background: linear-gradient(160deg, #fff, #f3eefb);
+  border-color: #cfb2e8;
+  box-shadow: 0 0 14px rgba(122, 63, 242, .28);
+}
+.card.joker .pip { font-size: 30px; }
+
+.card.deal-in { animation: dealin .35s ease; }
+@keyframes dealin {
+  from { opacity: 0; transform: translateY(-14px) scale(.9); }
+  to   { opacity: 1; transform: none; }
+}
+.card.flip-in { animation: flipin .45s ease; }
+@keyframes flipin {
+  0%   { transform: rotateY(90deg); }
+  100% { transform: rotateY(0); }
+}
+.card.new-pop { animation: newpop .3s ease; }
+@keyframes newpop {
+  0%   { transform: scale(.6); }
+  60%  { transform: scale(1.12); }
+  100% { transform: scale(1); }
+}
+
+/* 抽鬼牌：凑成一对的两张牌一起发光 */
+.card.pair-glow {
+  animation: pairglow .85s ease-in-out infinite;
+  border-color: var(--amber);
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, .45), 0 0 22px 6px rgba(245, 158, 11, .5);
+}
+@keyframes pairglow {
+  0%, 100% { transform: translateY(0) scale(1); filter: brightness(1); }
+  50%      { transform: translateY(-6px) scale(1.07); filter: brightness(1.3); }
+}
+
+/* 抽鬼牌：凑对后上移消失的全局特效 */
+.pair-fly {
+  position: fixed; top: 42%; left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 9999;
+  display: flex; flex-direction: column; align-items: center; gap: 10px;
+  pointer-events: none;
+  animation: pairfly 1.4s ease forwards;
+}
+.pair-fly-label {
+  font-weight: 800; font-size: 17px; color: var(--amber);
+  background: #fff8e6; padding: 7px 18px; border-radius: 999px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, .18);
+}
+.pair-fly-cards { display: flex; gap: 10px; }
+.pair-fly-card { box-shadow: 0 8px 30px rgba(245, 158, 11, .55); }
+@keyframes pairfly {
+  0%   { opacity: 0; transform: translate(-50%, -50%) scale(.7); }
+  15%  { opacity: 1; transform: translate(-50%, -50%) scale(1.06); }
+  30%  { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  70%  { opacity: 1; transform: translate(-50%, -65%) scale(1); }
+  100% { opacity: 0; transform: translate(-50%, -100%) scale(.92); }
+}
 
 .scoreboard { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
 .score-chip {
@@ -1075,3 +1149,80 @@ body { padding-bottom: 40px; }
 .botc-hint { font-size: 12px; color: rgba(255,255,255,.65); }
 .botc-dead-hint { margin: 8px 0; font-size: 12px; color: rgba(239,68,68,.85); }
 .botc-end { margin-top: 10px; padding: 12px; border-radius: 10px; text-align: center; font-size: 16px; font-weight: 800; background: rgba(212,175,55,.12); border: 1px solid rgba(212,175,55,.5); }
+
+/* ===== 椋炶妫嬮噸鍋?v2锛堣鐩栧寮猴級 ===== */
+.ludo-game-frame { position: relative; }
+.ludo-board { background: linear-gradient(145deg, #2b2f4a, #1c1f36); gap: 2px; padding: 10px; border-radius: 18px; box-shadow: 0 12px 30px rgba(0,0,0,.28), inset 0 0 0 1px rgba(255,255,255,.08); }
+.ludo-cell { border-radius: 8px; transition: transform .12s ease, box-shadow .12s ease; }
+.ludo-track { border: 1px solid rgba(0,0,0,.05); }
+.ludo-track:hover { transform: scale(1.06); z-index: 1; }
+.ludo-safe { box-shadow: inset 0 0 0 2px rgba(255,255,255,.55); }
+.ludo-avail { box-shadow: inset 0 0 0 2px #ffd34d, 0 0 10px rgba(255,211,77,.45); cursor: pointer; }
+.ludo-avail:hover { transform: scale(1.12); }
+.ludo-home { border-radius: 12px; box-shadow: inset 0 0 0 2px rgba(255,255,255,.45), 0 3px 8px rgba(0,0,0,.2); }
+.ludo-hangar { background: rgba(255,255,255,.06); border: 1px dashed rgba(255,255,255,.35); border-radius: 10px; }
+.ludo-center-logo { font-size: 22px; font-weight: 800; color: #fff; text-shadow: 0 2px 8px rgba(0,0,0,.4); text-align: center; }
+
+/* 椋炴満 token */
+.ludo-plane { width: 22px; height: 22px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 11px; font-weight: 700; box-shadow: 0 2px 6px rgba(0,0,0,.32), inset 0 -2px 0 rgba(0,0,0,.22), inset 0 2px 2px rgba(255,255,255,.35); border: 2px solid rgba(255,255,255,.75); position: relative; }
+.ludo-plane::after { content: '鉁?; font-size: 10px; line-height: 1; }
+.ludo-plane.anim-takeoff { animation: ludo-takeoff .7s ease; }
+.ludo-plane.anim-hit { animation: ludo-hit .6s ease forwards; }
+.ludo-plane.anim-home { animation: ludo-home .8s ease; }
+.ludo-plane.anim-win { animation: ludo-win .9s ease infinite; }
+.ludo-plane.anim-special { animation: ludo-special .7s ease; }
+@keyframes ludo-takeoff { 0%{transform:translateY(0) scale(1)} 30%{transform:translateY(-14px) scale(1.18) rotate(-10deg)} 60%{transform:translateY(2px) scale(.94)} 100%{transform:translateY(0) scale(1)} }
+@keyframes ludo-hit { 0%{transform:scale(1);filter:none} 40%{transform:scale(1.35) rotate(15deg);filter:brightness(2.2)} 100%{transform:scale(0) rotate(-30deg);filter:brightness(3);opacity:0} }
+@keyframes ludo-home { 0%{transform:scale(1)} 50%{transform:scale(1.4) rotate(15deg)} 100%{transform:scale(1)} }
+@keyframes ludo-win { 0%,100%{transform:scale(1) rotate(0)} 25%{transform:scale(1.25) rotate(-12deg)} 75%{transform:scale(1.15) rotate(12deg)} }
+@keyframes ludo-special { 0%{transform:scale(1)} 40%{transform:scale(1.35) rotate(20deg)} 100%{transform:scale(1)} }
+
+/* 鐗规畩鏍?*/
+.ludo-cell.special { position: relative; overflow: hidden; }
+.ludo-cell.special .sp-ring { position: absolute; inset: 2px; border-radius: 7px; border: 2px dashed rgba(0,0,0,.22); pointer-events: none; }
+.ludo-cell.special .sp-ico { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 17px; opacity: .4; pointer-events: none; }
+.ludo-cell.special:hover .sp-ico { opacity: .8; transform: scale(1.2); }
+
+/* 鏍煎瓙鑴夊啿楂樹寒 */
+@keyframes ludo-cellpulse { 0%{box-shadow:0 0 0 0 rgba(255,211,77,.85)} 100%{box-shadow:0 0 0 12px rgba(255,211,77,0)} }
+.ludo-fx-cell { animation: ludo-cellpulse .7s ease 2; z-index: 2; }
+
+/* 浜嬩欢娴眰 */
+.ludo-mid { position: relative; min-height: 96px; }
+.ludo-fx-toast { position: absolute; left: 50%; top: 34%; transform: translate(-50%,-50%) scale(.8); background: rgba(18,20,38,.93); color: #fff; padding: 10px 22px; border-radius: 999px; font-size: 15px; font-weight: 700; z-index: 20; pointer-events: none; box-shadow: 0 6px 24px rgba(0,0,0,.45); animation: ludo-toast .95s ease forwards; white-space: nowrap; max-width: 92%; text-align: center; }
+@keyframes ludo-toast { 0%{opacity:0;transform:translate(-50%,-50%) scale(.6)} 15%{opacity:1;transform:translate(-50%,-50%) scale(1.08)} 25%{transform:translate(-50%,-50%) scale(1)} 72%{opacity:1} 100%{opacity:0;transform:translate(-50%,-62%) scale(1)} }
+
+/* 楠板瓙鏃嬭浆 */
+.ludo-die { background: linear-gradient(145deg, #ffffff, #eef0fb); border: 2px solid #c9c9de; }
+.ludo-die.rolling { animation: ludo-roll3d .55s ease; }
+@keyframes ludo-roll3d { 0%{transform:rotate(0) scale(1)} 25%{transform:rotate(-170deg) scale(1.18)} 50%{transform:rotate(130deg) scale(.88)} 75%{transform:rotate(-60deg) scale(1.12)} 100%{transform:rotate(0) scale(1)} }
+
+/* 鍦板浘閫夋嫨 */
+.ludo-map-panel { display: flex; flex-direction: column; gap: 10px; padding: 8px 4px; }
+.ludo-map-sub { font-size: 13px; color: var(--ink-2); text-align: center; }
+.ludo-map-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; padding: 6px 0; }
+.ludo-map-card { border: 2px solid rgba(120,120,160,.22); border-radius: 14px; padding: 16px 10px; background: linear-gradient(160deg, rgba(255,255,255,.14), rgba(255,255,255,.04)); cursor: pointer; transition: transform .15s, border-color .15s, box-shadow .15s; text-align: center; }
+.ludo-map-card:hover { transform: translateY(-3px); border-color: var(--brand); box-shadow: 0 8px 18px rgba(0,0,0,.18); }
+.ludo-map-card.sel { border-color: #ffd34d; box-shadow: 0 0 0 2px rgba(255,211,77,.5); }
+.ludo-map-card .emoji { font-size: 30px; }
+.ludo-map-card .name { font-weight: 700; color: var(--ink-1); margin-top: 6px; }
+.ludo-map-card .desc { font-size: 12px; color: var(--ink-2); margin-top: 3px; }
+.ludo-map-tag { text-align: center; font-size: 12px; color: var(--ink-2); margin: 4px 0 6px; }
+
+/* 鑳滃埄褰╁甫 */
+.ludo-win-burst { position: absolute; inset: 0; overflow: hidden; pointer-events: none; z-index: 30; border-radius: 14px; }
+.ludo-win-burst i { position: absolute; width: 10px; height: 16px; border-radius: 3px; top: -22px; animation-name: ludo-confetti; animation-timing-function: linear; animation-fill-mode: forwards; }
+@keyframes ludo-confetti { to { transform: translateY(620px) rotate(720deg); opacity: .15; } }
+
+/* 鍒嗘暟鏉垮渾鐐?*/
+.ludo-dot { width: 14px; height: 14px; box-shadow: 0 2px 4px rgba(0,0,0,.22); }
+
+@media (max-width: 640px) {
+  .ludo-board { gap: 1px; padding: 6px; border-radius: 12px; }
+  .ludo-plane { width: 17px; height: 17px; border-width: 1.5px; }
+  .ludo-plane::after { font-size: 8px; }
+  .ludo-die { width: 50px; height: 50px; }
+  .ludo-die i { width: 8px; height: 8px; }
+  .ludo-cell.special .sp-ico { font-size: 13px; }
+}
+

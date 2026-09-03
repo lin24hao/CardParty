@@ -1,7 +1,7 @@
 // 主控制：大厅、房间、消息路由、游戏分发
 const GAME_REGISTRY = [
   { key: 'oldmaid',   name: '抽鬼牌',     icon: '👻', desc: '轮流抽牌凑对，最后拿到鬼牌的输', min: 2, max: 6, available: true,  module: () => OldMaid },
-  { key: 'blackjack', name: '21点',       icon: '🃏', desc: '和庄家比点，看谁更接近 21 不爆', min: 2, max: 8, available: true,  module: () => Blackjack },
+  { key: 'blackjack', name: '21点',       icon: '🃏', desc: '比点接近 21 不爆，点数最高者胜', min: 2, max: 8, available: true,  module: () => Blackjack },
   { key: 'uno',       name: 'UNO',        icon: '🌈', desc: '颜色或数字对得上就能出，先出完手牌获胜', min: 2, max: 6, available: true,  module: () => Uno },
   { key: 'poison',    name: '女巫的毒药', icon: '🧪', desc: '往锅里放药水，别让锅溢出，罚分最少者胜', min: 3, max: 6, available: true, module: () => Poison },
   { key: 'werewolf',  name: '狼人杀',     icon: '🐺', desc: '天黑请闭眼，找出狼人，好人阵营获胜', min: 6, max: 8, available: true,  module: () => Werewolf },
@@ -9,7 +9,7 @@ const GAME_REGISTRY = [
   { key: 'horserace', name: '赛马',       icon: '🏇', desc: '四花色马竞速，认领一匹看谁先冲线',     min: 2, max: 8, available: true,  module: () => HorseRace },
   { key: 'ludo',      name: '飞行棋',     icon: '✈️', desc: '掷骰起飞踩人回家，4 架飞机先进港者胜',   min: 2, max: 4, available: true,  module: () => Ludo },
   { key: 'bubble_pvp', name: '泡泡龙对抗', icon: '💥', desc: '双人各自场地消除泡泡，一方出局后等对方也出局，按比分定胜负', min: 2, max: 2, available: true, solo: false, module: () => BubblePvp },
-  { key: 'bubble_coop', name: '泡泡龙合作', icon: '🤝', desc: '双炮台同场自由发射，合力消除泡泡累计 120 分通关', min: 2, max: 2, available: true, solo: false, module: () => BubbleCoop },
+  { key: 'bubble_coop', name: '泡泡龙合作', icon: '🤝', desc: '双炮台同场自由发射，合力消除泡泡累计 120 分通关（支持人机）', min: 2, max: 2, available: true, module: () => BubbleCoop },
   { key: 'loveletter', name: '情书',     icon: '💌', desc: '角色牌推理淘汰，猜中对方手牌即可取胜', min: 2, max: 6, available: true, module: () => LoveLetter },
   { key: 'taket6',     name: '谁是牛头王', icon: '🐂', desc: '数字接龙别吃牛头，10 回合牛头最少者胜', min: 2, max: 10, available: true, module: () => TakeT6 },
   { key: 'explodingkittens', name: '炸弹猫', icon: '💣', desc: '轮流抽牌摸雷，无拆弹就出局，最后存活者胜', min: 2, max: 5, available: true, module: () => ExplodingKittens },

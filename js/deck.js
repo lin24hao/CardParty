@@ -4,6 +4,9 @@ const Deck = (() => {
   const ranks = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
   const isRed = (suit) => suit === '♥' || suit === '♦';
 
+  // 小王（鬼牌）：抽鬼牌等玩法用，独立于 52 张标准牌
+  const JOKER = { suit: null, rank: 'Joker', joker: true };
+
   function makeDeck() {
     const cards = [];
     for (const suit of suits) {
@@ -14,6 +17,8 @@ const Deck = (() => {
     return cards;
   }
 
+  function isJoker(c) { return !!(c && c.joker); }
+
   function shuffle(arr) {
     const a = arr.slice();
     for (let i = a.length - 1; i > 0; i--) {
@@ -23,8 +28,8 @@ const Deck = (() => {
     return a;
   }
 
-  // 点数：A=1 ... K=13
-  function rankValue(rank) { return ranks.indexOf(rank) + 1; }
+  // 点数：A=1 ... K=13；Joker 无点数，返回 0
+  function rankValue(rank) { return isJoker({ rank }) ? 0 : ranks.indexOf(rank) + 1; }
 
   function cardId(c) { return c.suit + c.rank; }
 
@@ -41,5 +46,5 @@ const Deck = (() => {
     return total;
   }
 
-  return { suits, ranks, isRed, makeDeck, shuffle, rankValue, cardId, blackjackValue };
+  return { suits, ranks, isRed, isJoker, JOKER, makeDeck, shuffle, rankValue, cardId, blackjackValue };
 })();

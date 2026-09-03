@@ -74,24 +74,44 @@ const BubbleCore = (() => {
     let x = sx, y = sy;
     const trail = [];
     const step = 3;
+    // 起手前若干步不判定碰撞，避免炮口正上方已有泡泡时刚出膛就被吸附
+    const SAFE_STEPS = 6;
     for (let i = 0; i < 700; i++) {
       x += dx * step; y += dy * step;
       if (x < CELL_W / 2) { x = CELL_W / 2 + (CELL_W / 2 - x); dx = -dx; }
       else if (x > W - CELL_W / 2) { x = W - CELL_W / 2 - (x - (W - CELL_W / 2)); dx = -dx; }
-      trail.push({ x, y });
+      trail.push({ x: Math.round(x * 10) / 10, y: Math.round(y * 10) / 10 });
+      if (i < SAFE_STEPS) continue;
       if (y <= CELL_H / 2) {
         const cell = cellAt(x, Math.max(y, 1));
-        if (cell) return { trail, x: xAt(cell.r, cell.c), y: cell.r * CELL_H + CELL_H / 2, cell };
+        if (cell) {
+          const lx = xAt(cell.r, cell.c), ly = cell.r * CELL_H + CELL_H / 2;
+          trail.push({ x: Math.round(lx * 10) / 10, y: Math.round(ly * 10) / 10 });
+          return { trail, x: lx, y: ly, cell };
+        }
       }
       const cell = cellAt(x, y);
       if (cell && grid[cell.r] && grid[cell.r][cell.c]) {
         const place = nearestEmpty(grid, cell, x, y);
-        if (place) return { trail, x: xAt(place.r, place.c), y: place.r * CELL_H + CELL_H / 2, cell: place };
+        if (place) {
+          const lx = xAt(place.r, place.c), ly = place.r * CELL_H + CELL_H / 2;
+          trail.push({ x: Math.round(lx * 10) / 10, y: Math.round(ly * 10) / 10 });
+          return { trail, x: lx, y: ly, cell: place };
+        }
         break;
       }
     }
-    const cell = cellAt(x, y) || { r: 0, c: 0 };
-    return { trail, x: xAt(cell.r, cell.c), y: cell.r * CELL_H + CELL_H / 2, cell };
+    return null;
+  }
+  // 由轨迹构造飞行动画（所有客户端用同一份轨迹回放，保证观感一致）
+  function makeAnim(trail, color, sy, dur) {
+    if (!trail || trail.length < 2) return null;
+    return {
+      trail, color,
+      sx: trail[0].x, sy: sy != null ? sy : trail[0].y,
+      start: Date.now(),
+      dur: Math.max(180, Math.min(620, Math.round(trail.length * 4.5))),
+    };
   }
   // 兼容旧接口：直线飞行（新代码用 flyTrail）
   function fly(grid, sx, sy, dx, dy) {
@@ -279,6 +299,8 @@ const BubbleCore = (() => {
 
     // 粒子特效
     (opts.fx || []).forEach(f => {
+      // t0 可以是未来时间（用于等飞行落地后再爆开），未到点不绘制
+      if (now < f.t0) return;
       const t = Math.max(0, Math.min(1, (now - f.t0) / f.dur));
       if (t >= 1) return;
       if (f.type === 'burst') {
@@ -313,7 +335,8 @@ const BubbleCore = (() => {
   function needsAnim(opts) {
     const now = Date.now();
     if (opts.anim && now - opts.anim.start < opts.anim.dur) return true;
-    if (opts.fx && opts.fx.some(f => now - f.t0 < f.dur)) return true;
+    // 未来才开始的特效也要维持循环，否则泡泡落地后粒子不会被触发
+    if (opts.fx && opts.fx.some(f => now < f.t0 || now - f.t0 < f.dur)) return true;
     return !!opts.live;
   }
   function tickCanvas() {
@@ -335,7 +358,7 @@ const BubbleCore = (() => {
   return {
     COLS, ROWS, COLORS, GRAY, CELL_W, CELL_H, LAUNCH_Y, COLOR_HEX,
     makeGrid, makeInitial, makeQueue, isOdd, xAt, neighbors, cellAt,
-    fly, flyTrail, pop3, dropFloating, resolve, countPop, topRowPop, shiftRowsUp,
+    fly, flyTrail, makeAnim, pop3, dropFloating, resolve, countPop, topRowPop, shiftRowsUp,
     sinkStep, sinkRows, bottomRowHas, makeFx,
     renderCanvas, attachCanvas, drawCanvas, ensureAnim,
   };

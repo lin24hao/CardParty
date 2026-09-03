@@ -16,9 +16,22 @@ window.BubblePvp = (() => {
   let canvas = null;
   let canvasGrid = BC.makeGrid();
   let canvasOpts = { launchers: [launcher(COLS * CELL_W / 2)], warning: false, live: true, fx: [] };
-  let angle = -90, aiming = false;
+  let angle = -45, aiming = false;
+  let lastShotAt = 0;
+  let bound = [];           // 已绑定的 window 监听，重进游戏时统一解绑
+  const MAX_AIM = 78;       // 炮台可旋转到的最大偏角（0=正上，正=右，负=左）
+  const SHOT_CD = 260;      // 本地连发间隔
 
-  function launcher(x) { return { x, angle: -90, color: 'r', active: false }; }
+  function launcher(x) { return { x, angle: -90, color: 'r', active: true }; }
+
+  function on(target, type, fn, opts) {
+    target.addEventListener(type, fn, opts);
+    bound.push([target, type, fn]);
+  }
+  function unbind() {
+    bound.forEach(b => { try { b[0].removeEventListener(b[1], b[2]); } catch (e) { /* ignore */ } });
+    bound = [];
+  }
 
   function makeState() {
     const players = {};
@@ -51,7 +64,9 @@ window.BubblePvp = (() => {
     q.push(color);
     const before = JSON.stringify(grid);
     const ft = BC.flyTrail(grid, COLS * CELL_W / 2, BC.LAUNCH_Y, payload.angle);
-    if (!ft.cell) { q.pop(); q.unshift(color); return null; }
+    if (!ft || !ft.cell) { q.pop(); q.unshift(color); return null; }
+    const anim = BC.makeAnim(ft.trail, color, BC.LAUNCH_Y);
+    const flyMs = anim ? anim.dur : 0;
     const res = BC.resolve(grid, ft.cell, color);
     st.scores[id] += res.removed * 10 + res.dropped * 5;
     const ev = [];
@@ -76,18 +91,31 @@ window.BubblePvp = (() => {
         st.winner = st.scores[sorted[0]] === st.scores[sorted[1]] ? null : sorted[0];
       }
     }
-    return { ev, fx: BC.makeFx(ev, Date.now()) };
+    // 特效延后到飞行落地那一刻再播
+    return { ev, fx: BC.makeFx(ev, Date.now() + flyMs), anim, hideCell: ft.cell };
   }
-  function broadcastState(fxById) {
+
+  // 主机本地发射（房主自己操作时走这里，等价于收到客机的 MSG_SHOT）
+  function hostInput(fromId, data) {
+    if (!st || st.over) return;
+    const res = applyShot(fromId, data);
+    if (res) broadcastState({ [fromId]: res.fx }, res.anim, res.hideCell, fromId);
+  }
+
+  function broadcastState(fxById, anim, hideCell, animForId) {
     const ids = Object.keys(st.players);
     for (const id of ids) {
       const rivalId = ids.find(x => x !== id);
+      const mine = id === animForId;
       const msg = {
         type: MSG_STATE,
         me: { board: st.boards[id], queue: st.queues[id], score: st.scores[id], failed: st.failed[id] },
         rival: { score: rivalId ? st.scores[rivalId] : 0, failed: !!(rivalId && st.failed[rivalId]) },
         over: st.over, winner: st.winner,
         fx: fxById ? fxById[id] : null,
+        // 飞行动画只在自己这一侧场地上播放
+        anim: mine ? anim : null,
+        hideCell: mine ? hideCell : null,
       };
       if (id === Net.myId()) { applyState(msg); } else { Net.sendTo(id, msg); }
     }
@@ -105,7 +133,9 @@ window.BubblePvp = (() => {
   // ---------- 客户端 ----------
   function init(c) {
     ctx = c;
-    over = false; winner = null; me = null; rival = null; angle = -90; aiming = false;
+    unbind();
+    over = false; winner = null; me = null; rival = null; angle = -45; aiming = false;
+    lastShotAt = 0;
     buildUI();
     if (ctx.isHost) hostStart();
   }
@@ -127,6 +157,7 @@ window.BubblePvp = (() => {
     canvas = document.getElementById('pvp-my-canvas');
     canvasGrid = BC.makeGrid();
     canvasOpts = { launchers: [launcher(COLS * CELL_W / 2)], warning: false, live: true, fx: [] };
+    canvasOpts.launchers[0].angle = angle;
     BC.attachCanvas(canvas, canvasGrid, canvasOpts);
     BC.ensureAnim();
     bindInput();
@@ -134,36 +165,44 @@ window.BubblePvp = (() => {
 
   function bindInput() {
     if (!canvas) return;
+    const clampAim = (a) => Math.max(-MAX_AIM, Math.min(MAX_AIM, a));
+    // 画布被 CSS 缩放过（width:100%），必须把鼠标坐标换算回画布内部坐标
     const setAngle = (ev) => {
       const rect = canvas.getBoundingClientRect();
-      const cx = (ev.touches ? ev.touches[0].clientX : ev.clientX) - rect.left;
-      const cy = (ev.touches ? ev.touches[0].clientY : ev.clientY) - rect.top;
-      let a = Math.atan2(cx - rect.width / 2, rect.height - 16 - cy) * 180 / Math.PI;
-      a = Math.max(-160, Math.min(-20, a));
+      if (!rect.width) return;
+      // 用逻辑坐标而非 canvas.width/height —— 首帧渲染前画布还是默认 300x150
+      const scale = (COLS * CELL_W) / rect.width;
+      const pt = ev.touches ? ev.touches[0] : ev;
+      const px = (pt.clientX - rect.left) * scale;
+      const py = (pt.clientY - rect.top) * scale;
+      const l = canvasOpts.launchers[0];
+      const dyUp = BC.LAUNCH_Y - py;
+      if (dyUp <= 6) return;                       // 指针在炮口下方，不响应
+      const a = clampAim(Math.atan2(px - l.x, dyUp) * 180 / Math.PI);
       angle = a;
-      canvasOpts.launchers[0].angle = a;
-      canvasOpts.launchers[0].active = true;
+      l.angle = a; l.active = true;
+      BC.ensureAnim();
     };
     canvas.addEventListener('mousedown', (ev) => { aiming = true; setAngle(ev); ev.preventDefault(); });
     canvas.addEventListener('touchstart', (ev) => { aiming = true; setAngle(ev); ev.preventDefault(); }, { passive: false });
-    window.addEventListener('mousemove', (ev) => { if (aiming) setAngle(ev); });
-    window.addEventListener('touchmove', (ev) => { if (aiming) { setAngle(ev); ev.preventDefault(); } }, { passive: false });
+    on(window, 'mousemove', (ev) => { if (aiming) setAngle(ev); });
+    on(window, 'touchmove', (ev) => { if (aiming) { setAngle(ev); ev.preventDefault(); } }, { passive: false });
     const release = () => {
       if (!aiming) return;
       aiming = false;
-      canvasOpts.launchers[0].active = false;
       if (!isOver()) sendShot();
     };
-    window.addEventListener('mouseup', release);
-    window.addEventListener('touchend', release);
-    window.addEventListener('keydown', (ev) => {
+    on(window, 'mouseup', release);
+    on(window, 'touchend', release);
+    on(window, 'keydown', (ev) => {
       if (ev.key === 'ArrowLeft' || ev.key === 'ArrowRight') {
-        angle = Math.max(-160, Math.min(-20, angle + (ev.key === 'ArrowLeft' ? -4 : 4)));
+        angle = clampAim(angle + (ev.key === 'ArrowLeft' ? -4 : 4));
         canvasOpts.launchers[0].angle = angle;
         canvasOpts.launchers[0].active = true;
+        BC.ensureAnim();
       } else if (ev.key === ' ' || ev.key === 'Enter') {
         ev.preventDefault();
-        sendShot();
+        if (!isOver()) sendShot();
       }
     });
     const btn = document.getElementById('pvp-reset');
@@ -175,6 +214,9 @@ window.BubblePvp = (() => {
 
   function sendShot() {
     if (isOver()) return;
+    const now = Date.now();
+    if (now - lastShotAt < SHOT_CD) return;
+    lastShotAt = now;
     const msg = { type: MSG_SHOT, angle };
     if (ctx.isHost) hostInput(Net.myId(), msg);
     else Net.sendToHost(msg);
@@ -200,6 +242,10 @@ window.BubblePvp = (() => {
     } else {
       canvasOpts.fx = [];
     }
+    canvasOpts.launchers[0].active = true;
+    // 飞行动画：用主机下发的轨迹回放
+    canvasOpts.anim = msg.anim || null;
+    canvasOpts.hideCell = msg.hideCell || null;
     BC.attachCanvas(canvas, canvasGrid, canvasOpts);
     BC.ensureAnim();
     const scoreEl = document.getElementById('pvp-my-score');
@@ -225,9 +271,7 @@ window.BubblePvp = (() => {
     if (!ctx || !data || !data.type) return;
     if (ctx.isHost) {
       if (data.type === MSG_SHOT) {
-        if (!st || st.over) return;
-        const res = applyShot(from, data);
-        if (res) broadcastState({ [from]: res.fx });
+        hostInput(from, data);
       } else if (data.type === MSG_RESTART) {
         newGame(); broadcastState(null);
       }
